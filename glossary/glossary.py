@@ -169,7 +169,7 @@ def handle_nth_definition(entry, num=None):
     return '"{}" is undefined. {}'.format(entry, DOCS)
 
 
-@command('glossary', aliases=('gl',), doc=DOCS)
+@command('glossary', aliases=ALIASES, doc=DOCS)
 def quote(client, event, channel, nick, rest):
     rest = rest.strip()
 
