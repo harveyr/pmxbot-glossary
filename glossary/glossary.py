@@ -17,9 +17,7 @@ DOCS = (
     'Get a random definition by omitting the entry argument.'
 ).format(HELP_DEFINE_STR, HELP_QUERY_STR)
 
-OOPS_STR = (
-    "One of us screwed this up. Hopefully you. " + DOCS
-)
+OOPS_STR = "One of us screwed this up. Hopefully you. " + DOCS
 
 
 class Glossary(storage.SelectableStorage):
