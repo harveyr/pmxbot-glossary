@@ -42,7 +42,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
            timestamp INTEGER NOT NULL,
            PRIMARY KEY (entryid)
         )
-		"""
+        """
 
         CREATE_QUOTES_INDEX = """
           CREATE INDEX IF NOT EXISTS ix_glossary_entry ON glossary(entry)
