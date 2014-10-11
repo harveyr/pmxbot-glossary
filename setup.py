@@ -10,6 +10,7 @@ setup(
     url='https://github.com/harveyr/pmxbot-glossary/',
     license='MIT',
     packages=find_packages(),
+    install_requires=['pmxbot'],
     entry_points=dict(
         pmxbot_handlers=[
             'Glossary = glossary.glossary:Glossary.initialize',
