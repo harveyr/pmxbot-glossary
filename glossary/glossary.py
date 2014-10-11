@@ -39,15 +39,15 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
           CREATE TABLE IF NOT EXISTS glossary (
            entryid INTEGER NOT NULL,
            entry VARCHAR NOT NULL,
-		   definition TEXT NOT NULL,
-		   author VARCHAR NOT NULL,
-		   timestamp INTEGER NOT NULL,
-	       PRIMARY KEY (entryid)
+           definition TEXT NOT NULL,
+           author VARCHAR NOT NULL,
+           timestamp INTEGER NOT NULL,
+           PRIMARY KEY (entryid)
         )
 		"""
 
         CREATE_QUOTES_INDEX = """
-          CREATE INDEX IF NOT EXISTS ix_glossary_entry on glossary(entry)
+          CREATE INDEX IF NOT EXISTS ix_glossary_entry ON glossary(entry)
         """
 
         self.db.execute(CREATE_QUOTES_TABLE)
