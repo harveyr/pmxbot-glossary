@@ -17,14 +17,18 @@ Glossary extension for [pmxbot](https://bitbucket.org/yougov/pmxbot/wiki/Home).
  
  
 ## Why?
- 
-**Hypothesis:** Maintaining definitions of domain lingo via a chat bot is the
+
+This extension is an effort to test the following hypothesis:
+
+Maintaining definitions of domain lingo via a chat bot is the
 best way to keep those definitions up to date and readily accessible
 (assuming the group uses some form of internet chat).
 
-This bot is an effort to test that hypothesis. I believe this may be the case
-because:
+I believe this may be the case because:
 
-* It allows painless updating and retrieval of the definitions.
+* It allows painless updating of the definitions (no pull requests, etc.).
+* It allows painless retrieval of the definitions.
+* It enables somewhat automatic review of definitions as they are added
+  or retrieved.
 * It keeps the definitions in front of the eyes of the domain experts,
   maximizing the chances they will spot an obsolete or misguided entry.
