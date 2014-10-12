@@ -19,11 +19,18 @@ DOCS_STR = (
 
 OOPS_STR = 'One of us screwed this up. Hopefully you. ' + DOCS_STR
 
+ADD_DEFINITION_RESULT_TEMPLATE = u'Okay! "{entry}" is now "{definition}"'
+
+QUERY_RESULT_TEMPLATE =(
+    u'{entry} ({num}/{total}): {definition} [by {author}, {age}]'
+)
+
 
 class Glossary(storage.SelectableStorage):
     @classmethod
-    def initialize(cls):
-        cls.store = cls.from_URI(pmxbot.config.database)
+    def initialize(cls, db_uri=None):
+        db_uri = db_uri or pmxbot.config.database
+        cls.store = cls.from_URI(db_uri)
         cls._finalizers.append(cls.finalize)
 
     @classmethod
@@ -175,13 +182,13 @@ def handle_nth_definition(entry, num=None):
         return OOPS_STR
 
     if query_result:
-        return u'{} ({}/{}): {} [by {}, {}]'.format(
-            query_result.entry,
-            query_result.index + 1,
-            query_result.total_count,
-            query_result.definition,
-            query_result.author,
-            datetime_to_age_str(query_result.datetime)
+        return QUERY_RESULT_TEMPLATE.format(
+            entry=query_result.entry,
+            num=query_result.index + 1,
+            total=query_result.total_count,
+            definition=query_result.definition,
+            author=query_result.author,
+            age=datetime_to_age_str(query_result.datetime)
         )
 
     return u'"{}" is undefined. {}'.format(entry, DOCS_STR)
@@ -210,8 +217,10 @@ def handle_definition_add(nick, rest):
 
     result = Glossary.store.add_entry(entry, definition, author=nick)
 
-    return u'Okay! "{}" is now "{}"'.format(result.entry, result.definition)
-
+    return ADD_DEFINITION_RESULT_TEMPLATE.format(
+        entry=result.entry,
+        definition=result.definition
+    )
 
 
 @command('glossary', aliases=ALIASES, doc=DOCS_STR)
