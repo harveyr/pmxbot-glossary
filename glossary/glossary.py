@@ -10,14 +10,14 @@ ALIASES = ('gl', )
 HELP_DEFINE_STR = '!{} define <entry>: <definition>'.format(ALIASES[0])
 HELP_QUERY_STR = '!{} <entry> [<num>]'.format(ALIASES[0])
 
-DOCS = (
+DOCS_STR = (
     'To define an entry: `{}`. '
     'To get a definition: `{}`. '
-    'Pass in a number to get a definition from the history. '
+    'Pass in an integer >= 1 to get a definition from the history. '
     'Get a random definition by omitting the entry argument.'
 ).format(HELP_DEFINE_STR, HELP_QUERY_STR)
 
-OOPS_STR = 'One of us screwed this up. Hopefully you. ' + DOCS
+OOPS_STR = 'One of us screwed this up. Hopefully you. ' + DOCS_STR
 
 
 class Glossary(storage.SelectableStorage):
@@ -32,24 +32,24 @@ class Glossary(storage.SelectableStorage):
 
 
 class SQLiteGlossary(Glossary, storage.SQLiteStorage):
+    CREATE_GLOSSARY_SQL = """
+      CREATE TABLE IF NOT EXISTS glossary (
+       entryid INTEGER NOT NULL,
+       entry VARCHAR NOT NULL,
+       definition TEXT NOT NULL,
+       author VARCHAR NOT NULL,
+       timestamp INTEGER NOT NULL,
+       PRIMARY KEY (entryid)
+    )
+    """
+
+    CREATE_GLOSSARY_INDEX_SQL = """
+      CREATE INDEX IF NOT EXISTS ix_glossary_entry ON glossary(entry)
+    """
+
     def init_tables(self):
-        CREATE_QUOTES_TABLE = """
-          CREATE TABLE IF NOT EXISTS glossary (
-           entryid INTEGER NOT NULL,
-           entry VARCHAR NOT NULL,
-           definition TEXT NOT NULL,
-           author VARCHAR NOT NULL,
-           timestamp INTEGER NOT NULL,
-           PRIMARY KEY (entryid)
-        )
-        """
-
-        CREATE_QUOTES_INDEX = """
-          CREATE INDEX IF NOT EXISTS ix_glossary_entry ON glossary(entry)
-        """
-
-        self.db.execute(CREATE_QUOTES_TABLE)
-        self.db.execute(CREATE_QUOTES_INDEX)
+        self.db.execute(self.CREATE_GLOSSARY_SQL)
+        self.db.execute(self.CREATE_GLOSSARY_INDEX_SQL)
         self.db.commit()
 
     def add_entry(self, entry, definition, author):
@@ -61,8 +61,11 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         """
 
         timestamp = int(time.mktime(datetime.datetime.now().utctimetuple()))
+
         self.db.execute(sql, (entry, definition, author, timestamp))
         self.db.commit()
+
+        return self.get_entry_data(entry)
 
     def get_random_entry(self):
         sql = """
@@ -79,7 +82,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         return result[0]
 
-    def get_entry(self, entry, num=None):
+    def get_entry_data(self, entry, num=None):
         entry = entry.lower()
 
         sql = """
@@ -119,6 +122,9 @@ GlossaryQueryResult = namedtuple(
 
 
 def datetime_to_age_str(dt):
+    """
+    Return a human-readable age given a datetime object.
+    """
     days = (datetime.datetime.utcnow() - dt).days
 
     if days > 365:
@@ -134,28 +140,42 @@ def datetime_to_age_str(dt):
 
 
 def handle_random_query():
+    """
+    Returns a formatted result string for a random entry.
+
+    Uses the latest definition of the entry.
+    """
     entry = Glossary.store.get_random_entry()
 
     if not entry:
-        return "I can't find a single definition. " + DOCS
+        return "I can't find a single definition. " + DOCS_STR
 
     return handle_nth_definition(entry)
 
 
 def handle_nth_definition(entry, num=None):
+    """
+    Return a formatted result string for an entry.
+
+    If ``num`` is passed, it will return the corresponding numbered, historical
+    definition for the entry.
+    """
     if num:
         try:
             num = int(num)
         except (ValueError, TypeError):
             return OOPS_STR
 
+        if not num > 0:
+            return OOPS_STR
+
     try:
-        query_result = Glossary.store.get_entry(entry, num)
+        query_result = Glossary.store.get_entry_data(entry, num)
     except IndexError:
         return OOPS_STR
 
     if query_result:
-        return '{} ({}/{}): {} [by {}, {}]'.format(
+        return u'{} ({}/{}): {} [by {}, {}]'.format(
             query_result.entry,
             query_result.index + 1,
             query_result.total_count,
@@ -164,24 +184,47 @@ def handle_nth_definition(entry, num=None):
             datetime_to_age_str(query_result.datetime)
         )
 
-    return '"{}" is undefined. {}'.format(entry, DOCS)
+    return u'"{}" is undefined. {}'.format(entry, DOCS_STR)
 
 
-@command('glossary', aliases=ALIASES, doc=DOCS)
+def handle_definition_add(nick, rest):
+    """
+    Attempt to save a new definition.
+    """
+    if not ':' in rest:
+        return OOPS_STR
+
+    parts = rest.split(':', 1)
+
+    if len(parts) != 2:
+        return OOPS_STR
+
+    entry = parts[0].split()[-1].strip()
+
+    definition = parts[1].strip()
+
+    existing = Glossary.store.get_entry_data(entry)
+
+    if existing and existing.definition == definition:
+        return "That's already the current definition."
+
+    result = Glossary.store.add_entry(entry, definition, author=nick)
+
+    return u'Okay! "{}" is now "{}"'.format(result.entry, result.definition)
+
+
+
+@command('glossary', aliases=ALIASES, doc=DOCS_STR)
 def quote(client, event, channel, nick, rest):
+    """
+    Glossary command. Handles all command versions.
+
+    Assumes `rest` is a unicode object.
+    """
     rest = rest.strip()
 
     if rest.startswith('define'):
-        if not ':' in rest:
-            return OOPS_STR
-
-        parts = rest.split(':', 1)
-        entry = parts[0].split(' ')[-1].strip()
-        definition = parts[1].strip()
-
-        Glossary.store.add_entry(entry, definition, author=nick)
-
-        return 'Defined "{}" as "{}"'.format(entry, definition)
+        return handle_definition_add(nick, rest)
 
     parts = rest.strip().split()
 

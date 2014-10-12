@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 from setuptools import setup, find_packages
 
+import glossary
+
 setup(
     name='pmxbot-glossary',
-    version='0.1',
+    version=glossary.__version__,
     description='A pmxbot glossary extension.',
     author='Harvey Rogers',
     author_email='harveyr@gmail.com ',
