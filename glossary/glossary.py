@@ -65,7 +65,7 @@ class Glossary(storage.SelectableStorage):
         Save a dictionary of entries and definitions to the store.
         """
         for entry, definition in data.items():
-            existing = cls.store.get_all_entry_definitions(entry)
+            existing = cls.store.get_all_records_for_entry(entry)
             existing_defs = [e.definition for e in existing]
 
             if definition not in existing_defs:
@@ -150,39 +150,18 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         If ``num`` is provided, returns the object for that version of the
         definition in history.
         """
-        entry = entry.lower()
 
-        sql = """
-            SELECT entry, definition, author, timestamp
-            FROM glossary
-            WHERE entry LIKE ?
-            ORDER BY timestamp
-        """
+        stored = self.get_all_records_for_entry(entry)
 
-        results = self.db.execute(sql, (entry, )).fetchall()
+        if not stored:
+            return None
 
-        if results:
-            total_count = len(results)
+        if num:
+            return stored[num - 1]
 
-            if num:
-                index = num - 1
-            else:
-                index = total_count - 1
+        return stored[-1]
 
-            target = results[index]
-
-            return GlossaryQueryResult(
-                target[0],
-                target[1],
-                target[2],
-                datetime.datetime.fromtimestamp(float(target[-1])),
-                index,
-                total_count
-            )
-
-        return None
-
-    def get_all_entry_definitions(self, entry):
+    def get_all_records_for_entry(self, entry):
         """
         Returns a list of objects for all definitions of an entry.
         """
@@ -207,7 +186,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
                     row[1],
                     row[2],
                     datetime.datetime.fromtimestamp(float(row[-1])),
-                    i + 1,
+                    i,
                     total_count
                 )
             )
@@ -226,10 +205,14 @@ def datetime_to_age_str(dt):
     """
     days = (datetime.datetime.utcnow() - dt).days
 
-    if days > 365:
+    if days >= 365:
         age_str = '{0:.1f} years ago'.format(days / 365.0)
     elif days > 30:
         age_str = '{0:.1f} months ago'.format(days / 30.5)
+    elif days > 1:
+        age_str = '{} days ago'.format(days)
+    elif days == 1:
+        age_str = 'yesterday'
     elif days == 0:
         age_str = 'today'
     else:

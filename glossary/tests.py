@@ -6,7 +6,7 @@ from glossary import pmxbot
 import glossary
 
 
-class BaseTestCase(unittest.TestCase):
+class GlossaryTestCase(unittest.TestCase):
     DB_FILE = 'pmxbot_test.sqlite'
 
     TEST_DEFINITIONS = {
@@ -123,8 +123,8 @@ class BaseTestCase(unittest.TestCase):
         result = self._call_quote('fish 2')
         self.assertEqual(result, expected_2)
 
-        # Fetch the default (latest) definition
-        expected_default = glossary.QUERY_RESULT_TEMPLATE.format(
+        # Fetch the third definition
+        expected_3 = glossary.QUERY_RESULT_TEMPLATE.format(
             entry=entry,
             num=expected_total,
             total=expected_total,
@@ -132,8 +132,12 @@ class BaseTestCase(unittest.TestCase):
             author=author,
             age=expected_age
         )
+        result = self._call_quote('fish 3')
+        self.assertEqual(result, expected_3)
+
+        # Fetch the default (latest) definition
         result = self._call_quote('fish')
-        self.assertEqual(result, expected_default)
+        self.assertEqual(result, expected_3)
 
     def test_get_random_definition(self):
         self._load_test_definitions()
@@ -177,5 +181,39 @@ class BaseTestCase(unittest.TestCase):
         )
 
 
+class AgeStringTestCase(unittest.TestCase):
+    def test_just_now_str(self):
+        dt = datetime.datetime.now()
+        self.assertEqual('today', glossary.datetime_to_age_str(dt))
 
+    def test_yesterday_str(self):
+        dt = datetime.datetime.now() - datetime.timedelta(days=1)
+        self.assertEqual('yesterday', glossary.datetime_to_age_str(dt))
 
+    def test_two_days_ago(self):
+        dt = datetime.datetime.now() - datetime.timedelta(days=2)
+        self.assertEqual('2 days ago', glossary.datetime_to_age_str(dt))
+
+    def test_30_days_ago(self):
+        dt = datetime.datetime.now() - datetime.timedelta(days=30)
+        self.assertEqual('30 days ago', glossary.datetime_to_age_str(dt))
+
+    def test_31_days_ago(self):
+        dt = datetime.datetime.now() - datetime.timedelta(days=31)
+        self.assertEqual('1.0 months ago', glossary.datetime_to_age_str(dt))
+
+    def test_40_days_ago(self):
+        dt = datetime.datetime.now() - datetime.timedelta(days=40)
+        self.assertEqual('1.3 months ago', glossary.datetime_to_age_str(dt))
+
+    def test_100_days_ago(self):
+        dt = datetime.datetime.now() - datetime.timedelta(days=100)
+        self.assertEqual('3.3 months ago', glossary.datetime_to_age_str(dt))
+
+    def test_365_days_ago(self):
+        dt = datetime.datetime.now() - datetime.timedelta(days=365)
+        self.assertEqual('1.0 years ago', glossary.datetime_to_age_str(dt))
+
+    def test_450_days_ago(self):
+        dt = datetime.datetime.now() - datetime.timedelta(days=450)
+        self.assertEqual('1.2 years ago', glossary.datetime_to_age_str(dt))
