@@ -1,5 +1,7 @@
 # pmxbot-glossary
 
+[![Build Status](https://travis-ci.org/harveyr/pmxbot-glossary.svg?branch=master)](https://travis-ci.org/harveyr/pmxbot-glossary)
+
 Glossary extension for [pmxbot](https://bitbucket.org/yougov/pmxbot/wiki/Home).
 
 ## Command Examples
@@ -30,5 +32,8 @@ I believe this may be the case because:
 * It allows painless retrieval of the definitions.
 * It enables somewhat automatic review of definitions as they are added
   or retrieved.
-* It keeps the definitions in front of the eyes of the domain experts,
-  maximizing the chances they will spot an obsolete or misguided entry.
+* It creates "accidental" education: you'll learn stuff just sitting in a
+  channel and watching the definitions scroll by.
+* Along those lines, it keeps the definitions in front of the eyes of the
+  domain experts, maximizing the chances they will spot an obsolete,
+  misguided, or missing entry.
