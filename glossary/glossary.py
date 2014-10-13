@@ -29,6 +29,12 @@ QUERY_RESULT_TEMPLATE =(
 
 
 class Glossary(storage.SelectableStorage):
+    """
+    Glossary class.
+
+    The usage of SelectableStorage, SQLiteStorage, and cls.store are cribbed
+    from the pmxbot quotes module.
+    """
     @classmethod
     def initialize(cls, db_uri=None, load_fixtures=True):
         db_uri = db_uri or pmxbot.config.database
@@ -47,8 +53,8 @@ class Glossary(storage.SelectableStorage):
     def load_fixtures(cls, path='glossary_fixtures.json'):
         try:
             with open(path) as f:
-                data = json.load(f)
                 print('- Loading fixture data from ' + path)
+                data = json.load(f)
                 cls.save_entries(data)
         except IOError:
             print('- No fixture data found.')
@@ -122,7 +128,6 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
             """
             query = self.db.execute(sql).fetchall()
             entries = [r[0] for r in query]
-
             self.cache[cache_key] = entries
 
         return entries
