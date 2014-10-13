@@ -1,8 +1,8 @@
 # pmxbot-glossary
 
-[![Build Status](https://travis-ci.org/harveyr/pmxbot-glossary.svg?branch=master)](https://travis-ci.org/harveyr/pmxbot-glossary)
-
 Glossary extension for [pmxbot](https://bitbucket.org/yougov/pmxbot/wiki/Home).
+
+[![Build Status](https://travis-ci.org/harveyr/pmxbot-glossary.svg?branch=master)](https://travis-ci.org/harveyr/pmxbot-glossary)
 
 ## Command Examples
 
