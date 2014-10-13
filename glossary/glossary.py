@@ -1,5 +1,7 @@
-import time
 import datetime
+import json
+import random
+import time
 from collections import namedtuple
 
 import pmxbot
@@ -28,14 +30,40 @@ QUERY_RESULT_TEMPLATE =(
 
 class Glossary(storage.SelectableStorage):
     @classmethod
-    def initialize(cls, db_uri=None):
+    def initialize(cls, db_uri=None, load_fixtures=True):
         db_uri = db_uri or pmxbot.config.database
         cls.store = cls.from_URI(db_uri)
+
+        if load_fixtures:
+            cls.load_fixtures()
+
         cls._finalizers.append(cls.finalize)
 
     @classmethod
     def finalize(cls):
         del cls.store
+
+    @classmethod
+    def load_fixtures(cls, path='glossary_fixtures.json'):
+        try:
+            with open(path) as f:
+                data = json.load(f)
+                print('- Loading fixture data from ' + path)
+                cls.save_entries(data)
+        except IOError:
+            print('- No fixture data found.')
+
+    @classmethod
+    def save_entries(cls, data):
+        """
+        Save a dictionary of entries and definitions to the store.
+        """
+        for entry, definition in data.items():
+            existing = cls.store.get_all_entry_definitions(entry)
+            existing_defs = [e.definition for e in existing]
+
+            if definition not in existing_defs:
+                cls.store.add_entry(entry, definition, '<default>')
 
 
 class SQLiteGlossary(Glossary, storage.SQLiteStorage):
@@ -53,6 +81,10 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
     CREATE_GLOSSARY_INDEX_SQL = """
       CREATE INDEX IF NOT EXISTS ix_glossary_entry ON glossary(entry)
     """
+
+    ALL_ENTRIES_CACHE_KEY = 'all_entries'
+
+    cache = {}
 
     def init_tables(self):
         self.db.execute(self.CREATE_GLOSSARY_SQL)
@@ -72,24 +104,47 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         self.db.execute(sql, (entry, definition, author, timestamp))
         self.db.commit()
 
+        if self.ALL_ENTRIES_CACHE_KEY in self.cache:
+            del self.cache[self.ALL_ENTRIES_CACHE_KEY]
+
         return self.get_entry_data(entry)
 
-    def get_random_entry(self):
-        sql = """
-          SELECT entry FROM glossary
-          WHERE entryid = (
-            abs(random()) % (SELECT max(rowid) + 1 FROM glossary)
-        );
+    def get_all_entries(self):
         """
+        Returns list of all entries in the glossary.
+        """
+        cache_key = 'all_entries'
+        entries = self.cache.get(cache_key)
 
-        result = self.db.execute(sql).fetchone()
+        if not entries:
+            sql = """
+              SELECT DISTINCT entry FROM glossary
+            """
+            query = self.db.execute(sql).fetchall()
+            entries = [r[0] for r in query]
 
-        if not result:
+            self.cache[cache_key] = entries
+
+        return entries
+
+    def get_random_entry(self):
+        """
+        Returns a random entry from the glossary.
+        """
+        entries = self.get_all_entries()
+
+        if not entries:
             return None
 
-        return result[0]
+        return random.choice(entries)
 
     def get_entry_data(self, entry, num=None):
+        """
+        Returns GlossaryQueryResult for an entry in the glossary.
+
+        If ``num`` is provided, returns the object for that version of the
+        definition in history.
+        """
         entry = entry.lower()
 
         sql = """
@@ -122,6 +177,38 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         return None
 
+    def get_all_entry_definitions(self, entry):
+        """
+        Returns a list of objects for all definitions of an entry.
+        """
+        entry = entry.lower()
+
+        sql = """
+            SELECT entry, definition, author, timestamp
+            FROM glossary
+            WHERE entry LIKE ?
+            ORDER BY timestamp
+        """
+
+        results = self.db.execute(sql, (entry, )).fetchall()
+
+        entry_data = []
+        total_count = len(results)
+
+        for i, row in enumerate(results):
+            entry_data.append(
+                GlossaryQueryResult(
+                    row[0],
+                    row[1],
+                    row[2],
+                    datetime.datetime.fromtimestamp(float(row[-1])),
+                    i + 1,
+                    total_count
+                )
+            )
+
+        return entry_data
+
 
 GlossaryQueryResult = namedtuple(
     'GlossaryQueryResult', 'entry definition author datetime index total_count'
@@ -130,7 +217,7 @@ GlossaryQueryResult = namedtuple(
 
 def datetime_to_age_str(dt):
     """
-    Return a human-readable age given a datetime object.
+    Returns a human-readable age given a datetime object.
     """
     days = (datetime.datetime.utcnow() - dt).days
 
@@ -162,7 +249,7 @@ def handle_random_query():
 
 def handle_nth_definition(entry, num=None):
     """
-    Return a formatted result string for an entry.
+    Returns a formatted result string for an entry.
 
     If ``num`` is passed, it will return the corresponding numbered, historical
     definition for the entry.
