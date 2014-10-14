@@ -6,15 +6,15 @@ Glossary extension for [pmxbot](https://bitbucket.org/yougov/pmxbot/wiki/Home).
 
 ## Command Examples
 
-* `!gl define carrot: An orange rod`
+* `!whatis define carrot: An orange rod`
     * Creates a definition.
-* `!gl define carrot: An orange vegetable. For more, see http://en.wikipedia.org/wiki/Carrot`
+* `!whatis define carrot: An orange vegetable. For more, see http://en.wikipedia.org/wiki/Carrot`
     * Creates a new definition, but does not overwrite the old one.
-* `!gl carrot`
+* `!whatis carrot`
     * Gets the latest definition of carrot.
-* `!gl carrot 1`
+* `!whatis carrot 1`
     * Gets the first definition of carrot.
-* `!gl`
+* `!whatis`
     * Gets the latest definition of a random entry.
  
  

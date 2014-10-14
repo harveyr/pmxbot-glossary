@@ -31,8 +31,10 @@ class GlossaryTestCase(unittest.TestCase):
     def tearDown(self):
         pmxbot.storage.SelectableStorage.finalize()
 
-    def _load_test_definitions(self):
-        for entry, definition in self.TEST_DEFINITIONS.items():
+    def _load_test_definitions(self, definition_dict=None):
+        definition_dict = definition_dict or self.TEST_DEFINITIONS
+
+        for entry, definition in definition_dict.items():
             self._call_quote(
                 'define {}: {}'.format(entry, definition), nick=self.TEST_NICK
             )
@@ -74,6 +76,25 @@ class GlossaryTestCase(unittest.TestCase):
         )
 
         result = self._call_quote(entry)
+
+        self.assertEqual(result, expected)
+
+    def test_add_and_retrieve_entry_with_unicode(self):
+        entry = u'\u2603'
+        definition = u'a snowman, like \u2603'
+
+        self._call_quote(u'define {}: {}'.format(entry, definition))
+
+        result = self._call_quote(entry)
+
+        expected = glossary.QUERY_RESULT_TEMPLATE.format(
+            entry=entry,
+            num=1,
+            total=1,
+            definition=definition,
+            author=self.TEST_NICK,
+            age=glossary.datetime_to_age_str(datetime.datetime.now())
+        )
 
         self.assertEqual(result, expected)
 
@@ -197,6 +218,20 @@ class GlossaryTestCase(unittest.TestCase):
             all_entries | {new_entry, },
             set(glossary.Glossary.store.get_all_entries())
         )
+
+    def test_get_words_like(self):
+        entry_dict = {
+            'fish': 'a fish',
+            'fishy': 'fishlike',
+            'fishing': 'fishin',
+            'gofish': 'sweet game',
+        }
+
+        self._load_test_definitions(entry_dict)
+
+        result = set(glossary.Glossary.store.get_similar_words('fish'))
+
+        self.assertEqual(result, set(entry_dict.keys()))
 
 
 class AgeStringTestCase(unittest.TestCase):

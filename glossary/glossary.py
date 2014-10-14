@@ -8,12 +8,12 @@ import pmxbot
 from pmxbot import storage
 from pmxbot.core import command
 
-ALIASES = ('gl', )
+ALIASES = ('gl', 'whatis')
 HELP_DEFINE_STR = '!{} define <entry>: <definition>'.format(ALIASES[0])
 HELP_QUERY_STR = '!{} <entry> [<num>]'.format(ALIASES[0])
 
 DOCS_STR = (
-    'To define an entry: `{}`. '
+    'To define a glossary entry: `{}`. '
     'To get a definition: `{}`. '
     'Pass in an integer >= 1 to get a definition from the history. '
     'Get a random definition by omitting the entry argument.'
@@ -35,6 +35,9 @@ class Glossary(storage.SelectableStorage):
     The usage of SelectableStorage, SQLiteStorage, and cls.store are cribbed
     from the pmxbot quotes module.
     """
+
+    RESERVED_WORDS = ('help', 'define')
+
     @classmethod
     def initialize(cls, db_uri=None, load_fixtures=True):
         db_uri = db_uri or pmxbot.config.database
@@ -193,6 +196,21 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         return entry_data
 
+    def get_similar_words(self, fragment):
+        fragment = '%{}%'.format(fragment)
+
+        sql = """
+            SELECT DISTINCT entry
+            FROM glossary
+            WHERE entry LIkE ?
+            ORDER BY entry
+            LIMIT 10
+        """
+
+        results = self.db.execute(sql, (fragment, ))
+
+        return [r[0] for r in results]
+
 
 GlossaryQueryResult = namedtuple(
     'GlossaryQueryResult', 'entry definition author datetime index total_count'
@@ -266,7 +284,14 @@ def handle_nth_definition(entry, num=None):
             age=datetime_to_age_str(query_result.datetime)
         )
 
-    return u'"{}" is undefined. {}'.format(entry, DOCS_STR)
+    suggestions = Glossary.store.get_similar_words(entry)
+
+    if suggestions:
+        suggestion_str = u' Perhaps try {}.'.format(u', '.join(suggestions))
+    else:
+        suggestion_str = u''
+
+    return u'"{}" is undefined.{}'.format(entry, suggestion_str)
 
 
 def handle_definition_add(nick, rest):
@@ -282,6 +307,11 @@ def handle_definition_add(nick, rest):
         return OOPS_STR
 
     entry = parts[0].split('define', 1)[-1].strip()
+
+    if entry in Glossary.RESERVED_WORDS:
+        return (
+            u'"{}" is a reserved glossary word. It cannot be defined.'
+        ).format(entry)
 
     definition = parts[1].strip()
 
@@ -310,6 +340,9 @@ def quote(client, event, channel, nick, rest):
     if rest.startswith('define'):
         return handle_definition_add(nick, rest)
 
+    if rest.startswith('help'):
+        return DOCS_STR
+
     if not rest:
         return handle_random_query()
 
@@ -318,6 +351,7 @@ def quote(client, event, channel, nick, rest):
     if parts[-1].isdigit():
         entry = ' '.join(parts[:-1])
         num = int(parts[-1])
+
         return handle_nth_definition(entry, num)
 
     return handle_nth_definition(rest)
