@@ -281,7 +281,7 @@ def handle_definition_add(nick, rest):
     if len(parts) != 2:
         return OOPS_STR
 
-    entry = parts[0].split()[-1].strip()
+    entry = parts[0].split('define', 1)[-1].strip()
 
     definition = parts[1].strip()
 
@@ -310,16 +310,14 @@ def quote(client, event, channel, nick, rest):
     if rest.startswith('define'):
         return handle_definition_add(nick, rest)
 
-    parts = rest.strip().split()
-
-    if not parts:
+    if not rest:
         return handle_random_query()
 
-    entry = parts[0]
+    parts = rest.strip().split()
 
-    if len(parts) == 2:
-        return handle_nth_definition(entry, parts[1])
-    elif len(parts) > 2:
-        return OOPS_STR
-    else:
-        return handle_nth_definition(entry)
+    if parts[-1].isdigit():
+        entry = ' '.join(parts[:-1])
+        num = int(parts[-1])
+        return handle_nth_definition(entry, num)
+
+    return handle_nth_definition(rest)

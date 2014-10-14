@@ -77,6 +77,24 @@ class GlossaryTestCase(unittest.TestCase):
 
         self.assertEqual(result, expected)
 
+    def test_add_and_retrieve_entry_with_spaces(self):
+        entry = 'a fish called wanda'
+        definition = 'a fish named wanda'
+        self._call_quote('define {}:{}'.format(entry, definition))
+
+        result = self._call_quote(entry)
+
+        expected = glossary.QUERY_RESULT_TEMPLATE.format(
+            entry=entry,
+            num=1,
+            total=1,
+            definition=definition,
+            author=self.TEST_NICK,
+            age=glossary.datetime_to_age_str(datetime.datetime.now())
+        )
+
+        self.assertEqual(result, expected)
+
     def test_add_and_retrieve_multiple_definitions(self):
         author = 'bojangles'
         entry = 'fish'
