@@ -8,7 +8,7 @@ import pmxbot
 from pmxbot import storage
 from pmxbot.core import command
 
-ALIASES = ('gl', 'whatis')
+ALIASES = ('whatis', )
 HELP_DEFINE_STR = '!{} define <entry>: <definition>'.format(ALIASES[0])
 HELP_QUERY_STR = '!{} <entry> [<num>]'.format(ALIASES[0])
 
@@ -19,7 +19,9 @@ DOCS_STR = (
     'Get a random definition by omitting the entry argument.'
 ).format(HELP_DEFINE_STR, HELP_QUERY_STR)
 
-OOPS_STR = 'One of us screwed this up. Hopefully you. ' + DOCS_STR
+OOPS_STR = (
+    'One of us screwed this up. Hopefully you. For help: !{} help'
+).format(ALIASES[0])
 
 ADD_DEFINITION_RESULT_TEMPLATE = u'Okay! "{entry}" is now "{definition}"'
 
@@ -202,7 +204,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         sql = """
             SELECT DISTINCT entry
             FROM glossary
-            WHERE entry LIkE ?
+            WHERE entry LIKE ?
             ORDER BY entry
             LIMIT 10
         """
@@ -237,6 +239,27 @@ def datetime_to_age_str(dt):
         age_str = '{} days ago'.format(days)
 
     return age_str
+
+
+def readable_join(items):
+    """
+    Returns an oxford-comma-joined string with "or".
+
+    E.g., ['thing1', 'thing2', 'thing3'] becomes "thing1, thing2, or thing3".
+    """
+    if not items:
+        return None
+
+    count = len(items)
+
+    if count == 1:
+        s = items[0]
+    elif count == 2:
+        s = u' or '.join(items)
+    else:
+        s = u'{}, or {}'.format(u', '.join(items[:-1]), items[-1])
+
+    return s
 
 
 def handle_random_query():
@@ -287,7 +310,9 @@ def handle_nth_definition(entry, num=None):
     suggestions = Glossary.store.get_similar_words(entry)
 
     if suggestions:
-        suggestion_str = u' Perhaps try {}.'.format(u', '.join(suggestions))
+        suggestion_str = (
+            u' May I interest you in {}?'.format(readable_join(suggestions))
+        )
     else:
         suggestion_str = u''
 

@@ -221,9 +221,9 @@ class GlossaryTestCase(unittest.TestCase):
 
     def test_get_words_like(self):
         entry_dict = {
-            'fish': 'a fish',
+            'a fish': 'just a fish',
             'fishy': 'fishlike',
-            'fishing': 'fishin',
+            'gone fishing': 'fishin',
             'gofish': 'sweet game',
         }
 
@@ -232,6 +232,31 @@ class GlossaryTestCase(unittest.TestCase):
         result = set(glossary.Glossary.store.get_similar_words('fish'))
 
         self.assertEqual(result, set(entry_dict.keys()))
+
+
+class ReadableJoinTestCase(unittest.TestCase):
+    def test_no_items(self):
+        self.assertEqual(None, glossary.readable_join([]))
+
+    def test_one_item(self):
+        self.assertEqual('thing', glossary.readable_join(['thing']))
+
+    def test_two_items(self):
+        self.assertEqual(
+            'thing1 or thing2', glossary.readable_join(['thing1', 'thing2'])
+        )
+
+    def test_three_items(self):
+        self.assertEqual(
+            'thing1, thing2, or thing3',
+            glossary.readable_join(['thing1', 'thing2', 'thing3'])
+        )
+
+    def test_four_items(self):
+        self.assertEqual(
+            'thing1, thing2, thing3, or thing4',
+            glossary.readable_join(['thing1', 'thing2', 'thing3', 'thing4'])
+        )
 
 
 class AgeStringTestCase(unittest.TestCase):
