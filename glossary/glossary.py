@@ -1,6 +1,7 @@
 import datetime
 import json
 import random
+import string
 import time
 from collections import namedtuple
 
@@ -19,9 +20,9 @@ DOCS_STR = (
     'Get a random definition by omitting the entry argument.'
 ).format(HELP_DEFINE_STR, HELP_QUERY_STR)
 
-OOPS_STR = (
-    'One of us screwed this up. Hopefully you. For help: !{} help'
-).format(ALIASES[0])
+FOR_HELP_STR = 'For help: !{} help'.format(ALIASES[0])
+
+OOPS_STR = 'One of us screwed this up. Hopefully you. ' + FOR_HELP_STR
 
 ADD_DEFINITION_RESULT_TEMPLATE = u'Okay! "{entry}" is now "{definition}"'
 
@@ -38,7 +39,7 @@ class Glossary(storage.SelectableStorage):
     from the pmxbot quotes module.
     """
 
-    RESERVED_WORDS = ('help', 'define')
+    RESERVED_WORDS = ('help', 'define', 'search')
 
     @classmethod
     def initialize(cls, db_uri=None, load_fixtures=True):
@@ -110,7 +111,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
           VALUES (?, ?, ?, ?)
         """
 
-        timestamp = int(time.mktime(datetime.datetime.now().utctimetuple()))
+        timestamp = int(time.mktime(datetime.datetime.utcnow().utctimetuple()))
 
         self.db.execute(sql, (entry, definition, author, timestamp))
         self.db.commit()
@@ -129,7 +130,8 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         if not entries:
             sql = """
-              SELECT DISTINCT entry FROM glossary
+              SELECT DISTINCT entry
+              FROM glossary
             """
             query = self.db.execute(sql).fetchall()
             entries = [r[0] for r in query]
@@ -155,6 +157,8 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         If ``num`` is provided, returns the object for that version of the
         definition in history.
         """
+        if num is not None and num < 1:
+            raise IndexError
 
         stored = self.get_all_records_for_entry(entry)
 
@@ -198,7 +202,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         return entry_data
 
-    def get_similar_words(self, fragment):
+    def get_similar_words(self, fragment, limit=10):
         fragment = '%{}%'.format(fragment)
 
         sql = """
@@ -206,10 +210,10 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
             FROM glossary
             WHERE entry LIKE ?
             ORDER BY entry
-            LIMIT 10
+            LIMIT ?
         """
 
-        results = self.db.execute(sql, (fragment, ))
+        results = self.db.execute(sql, (fragment, limit))
 
         return [r[0] for r in results]
 
@@ -223,22 +227,38 @@ def datetime_to_age_str(dt):
     """
     Returns a human-readable age given a datetime object.
     """
-    days = (datetime.datetime.utcnow() - dt).days
+    age = (datetime.datetime.utcnow() - dt)
+    days = age.days
 
     if days >= 365:
-        age_str = '{0:.1f} years ago'.format(days / 365.0)
-    elif days > 30:
-        age_str = '{0:.1f} months ago'.format(days / 30.5)
-    elif days > 1:
-        age_str = '{} days ago'.format(days)
-    elif days == 1:
-        age_str = 'yesterday'
-    elif days == 0:
-        age_str = 'today'
-    else:
-        age_str = '{} days ago'.format(days)
+        return '{0:.1f} years ago'.format(days / 365.0)
 
-    return age_str
+    if days > 30:
+        return '{0:.1f} months ago'.format(days / 30.5)
+
+    if days > 1:
+        return '{} days ago'.format(days)
+
+    if days == 1:
+        return 'yesterday'
+
+    seconds = age.total_seconds()
+    minutes = int(seconds / 60)
+    hours = int(seconds / 3600)
+
+    if hours > 1:
+        return '{} hours ago'.format(hours)
+
+    if hours == 1:
+        return '1 hour ago'
+
+    if minutes > 1:
+        return '{} minutes ago'.format(minutes)
+
+    if minutes == 1:
+        return '1 minute ago'
+
+    return 'just now'
 
 
 def readable_join(items):
@@ -260,6 +280,24 @@ def readable_join(items):
         s = u'{}, or {}'.format(u', '.join(items[:-1]), items[-1])
 
     return s
+
+
+def get_alternative_suggestions(entry):
+    query_words = set()
+
+    for delim in (' ', '-', '_'):
+        for part in entry.split(delim):
+            query_words.add(part.strip().lower())
+
+    results = set()
+
+    for word in query_words:
+        similar = Glossary.store.get_similar_words(word)
+
+        if similar:
+            results |= set(similar)
+
+    return results
 
 
 def handle_random_query():
@@ -289,13 +327,12 @@ def handle_nth_definition(entry, num=None):
         except (ValueError, TypeError):
             return OOPS_STR
 
-        if not num > 0:
-            return OOPS_STR
-
     try:
         query_result = Glossary.store.get_entry_data(entry, num)
     except IndexError:
-        return OOPS_STR
+        return u'{} is not a valid entry number for {}. {}'.format(
+            num, entry, FOR_HELP_STR
+        )
 
     if query_result:
         return QUERY_RESULT_TEMPLATE.format(
@@ -307,7 +344,7 @@ def handle_nth_definition(entry, num=None):
             age=datetime_to_age_str(query_result.datetime)
         )
 
-    suggestions = Glossary.store.get_similar_words(entry)
+    suggestions = list(get_alternative_suggestions(entry))[:10]
 
     if suggestions:
         suggestion_str = (
@@ -326,6 +363,9 @@ def handle_definition_add(nick, rest):
     if not ':' in rest:
         return OOPS_STR
 
+    if '::' in rest:
+        return "I can't handle '::' right now. Please try again without it."
+
     parts = rest.split(':', 1)
 
     if len(parts) != 2:
@@ -335,8 +375,15 @@ def handle_definition_add(nick, rest):
 
     if entry in Glossary.RESERVED_WORDS:
         return (
-            u'"{}" is a reserved glossary word. It cannot be defined.'
+            '"{}" is a reserved glossary word. It cannot be defined.'
         ).format(entry)
+
+    invalid_char = next((c for c in entry if c in string.punctuation), None)
+
+    if invalid_char:
+        return 'Punctation ("{}") cannot be used in a glossary entry.'.format(
+            invalid_char
+        )
 
     definition = parts[1].strip()
 
@@ -353,6 +400,17 @@ def handle_definition_add(nick, rest):
     )
 
 
+def handle_search(rest):
+    term = rest.split('search', 1)[-1].strip()
+
+    matches = Glossary.store.get_similar_words(term)
+
+    if not matches:
+        return 'No glossary results found.'
+    else:
+        return u'Glossary entries: {}'.format(u', '.join(matches))
+
+
 @command('glossary', aliases=ALIASES, doc=DOCS_STR)
 def quote(client, event, channel, nick, rest):
     """
@@ -362,8 +420,11 @@ def quote(client, event, channel, nick, rest):
     """
     rest = rest.strip()
 
-    if rest.startswith('define'):
+    if rest.startswith('define '):
         return handle_definition_add(nick, rest)
+
+    if rest.startswith('search '):
+        return handle_search(rest)
 
     if rest.startswith('help'):
         return DOCS_STR

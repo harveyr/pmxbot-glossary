@@ -1,6 +1,7 @@
 import os
-import unittest
 import datetime
+import string
+import unittest
 
 from glossary import pmxbot
 import glossary
@@ -13,12 +14,12 @@ class GlossaryTestCase(unittest.TestCase):
         'blargh': 'this one thing I had',
         'snargh': 'also a thing',
         'salmon': 'a type of things',
-        'fish_oil': 'what salmon sell',
+        'fish oil': 'what salmon sell',
         'building': 'where salmon hold meetings',
         'castle': 'where salmon have tea',
     }
 
-    TEST_NICK = 'nick_at_now'
+    TEST_NICK = 'tester_person'
 
     def setUp(self):
         if os.path.exists(self.DB_FILE):
@@ -93,7 +94,7 @@ class GlossaryTestCase(unittest.TestCase):
             total=1,
             definition=definition,
             author=self.TEST_NICK,
-            age=glossary.datetime_to_age_str(datetime.datetime.now())
+            age=glossary.datetime_to_age_str(datetime.datetime.utcnow())
         )
 
         self.assertEqual(result, expected)
@@ -111,7 +112,7 @@ class GlossaryTestCase(unittest.TestCase):
             total=1,
             definition=definition,
             author=self.TEST_NICK,
-            age=glossary.datetime_to_age_str(datetime.datetime.now())
+            age=glossary.datetime_to_age_str(datetime.datetime.utcnow())
         )
 
         self.assertEqual(result, expected)
@@ -137,6 +138,11 @@ class GlossaryTestCase(unittest.TestCase):
 
         expected_total = len(definitions)
         expected_age = glossary.datetime_to_age_str(datetime.datetime.utcnow())
+
+        expected_zero = (
+            '0 is not a valid entry number for fish. ' + glossary.FOR_HELP_STR
+        )
+        self.assertEqual(self._call_quote('fish 0'), expected_zero)
 
         # Fetch the first definition
         expected_1 = glossary.QUERY_RESULT_TEMPLATE.format(
@@ -185,13 +191,13 @@ class GlossaryTestCase(unittest.TestCase):
 
         for i in range(20):
             result = self._call_quote('')
-            parts = result.split()
-            entry, definition = parts[0], ' '.join(parts[2:])
+            entry = result.split('(', 1)[0].strip()
+            definition = result.split(':')[-1].strip()
 
             self.assertIn(entry, expected_entries)
 
             expected_definition = (
-                '{} [by {}, today]'.format(
+                '{} [by {}, just now]'.format(
                     self.TEST_DEFINITIONS[entry],
                     self.TEST_NICK
                 )
@@ -233,6 +239,53 @@ class GlossaryTestCase(unittest.TestCase):
 
         self.assertEqual(result, set(entry_dict.keys()))
 
+    def test_punctuation_error_response(self):
+        for punct_char in string.punctuation:
+            entry = 'entry' + punct_char
+            definition = 'a super disallowed entry'
+
+            result = self._call_quote('define {}: {}'.format(entry, definition))
+
+            if punct_char == ':':
+                expected = (
+                    "I can't handle '::' right now. "
+                    "Please try again without it."
+                )
+                self.assertEqual(expected, result)
+            else:
+                expected = (
+                    'Punctation ("{}") cannot be used in a glossary entry.'
+                ).format(punct_char)
+
+                self.assertEqual(result, expected)
+
+    def test_get_alternative_suggestions(self):
+        self._load_test_definitions({
+            'dataplasm': 'a plasm full of data',
+            'octonerd': 'eight nerds, enmeshed',
+            'terse herd': 'a concise form of herd'
+        })
+
+        self.assertEqual(
+            glossary.get_alternative_suggestions('terse data'),
+            {'terse herd', 'dataplasm'}
+        )
+
+        self.assertEqual(
+            glossary.get_alternative_suggestions('octo-plasm'),
+            {'octonerd', 'dataplasm'}
+        )
+
+        self.assertEqual(
+            glossary.get_alternative_suggestions('plasm_herd'),
+            {'terse herd', 'dataplasm'}
+        )
+
+        self.assertEqual(
+            glossary.get_alternative_suggestions('zamboni'),
+            set()
+        )
+
 
 class ReadableJoinTestCase(unittest.TestCase):
     def test_no_items(self):
@@ -260,38 +313,61 @@ class ReadableJoinTestCase(unittest.TestCase):
 
 
 class AgeStringTestCase(unittest.TestCase):
+    @property
+    def now(self):
+        return datetime.datetime.utcnow()
+
     def test_just_now_str(self):
-        dt = datetime.datetime.now()
-        self.assertEqual('today', glossary.datetime_to_age_str(dt))
+        self.assertEqual('just now', glossary.datetime_to_age_str(self.now))
+
+    def test_just_now_str_under_minute(self):
+        dt = self.now - datetime.timedelta(seconds=55)
+        self.assertEqual('just now', glossary.datetime_to_age_str(self.now))
+
+    def test_minute_ago(self):
+        dt = self.now - datetime.timedelta(seconds=60)
+        self.assertEqual('1 minute ago', glossary.datetime_to_age_str(dt))
+
+    def test_minutes_ago(self):
+        dt = self.now - datetime.timedelta(seconds=60 * 55)
+        self.assertEqual('55 minutes ago', glossary.datetime_to_age_str(dt))
+
+    def test_hour_ago(self):
+        dt = self.now - datetime.timedelta(seconds=60 * 60)
+        self.assertEqual('1 hour ago', glossary.datetime_to_age_str(dt))
+
+    def test_hours_ago_str(self):
+        dt = self.now - datetime.timedelta(hours=13)
+        self.assertEqual('13 hours ago', glossary.datetime_to_age_str(dt))
 
     def test_yesterday_str(self):
-        dt = datetime.datetime.now() - datetime.timedelta(days=1)
+        dt = self.now - datetime.timedelta(days=1)
         self.assertEqual('yesterday', glossary.datetime_to_age_str(dt))
 
     def test_two_days_ago(self):
-        dt = datetime.datetime.now() - datetime.timedelta(days=2)
+        dt = self.now - datetime.timedelta(days=2)
         self.assertEqual('2 days ago', glossary.datetime_to_age_str(dt))
 
     def test_30_days_ago(self):
-        dt = datetime.datetime.now() - datetime.timedelta(days=30)
+        dt = self.now - datetime.timedelta(days=30)
         self.assertEqual('30 days ago', glossary.datetime_to_age_str(dt))
 
     def test_31_days_ago(self):
-        dt = datetime.datetime.now() - datetime.timedelta(days=31)
+        dt = self.now - datetime.timedelta(days=31)
         self.assertEqual('1.0 months ago', glossary.datetime_to_age_str(dt))
 
     def test_40_days_ago(self):
-        dt = datetime.datetime.now() - datetime.timedelta(days=40)
+        dt = self.now - datetime.timedelta(days=40)
         self.assertEqual('1.3 months ago', glossary.datetime_to_age_str(dt))
 
     def test_100_days_ago(self):
-        dt = datetime.datetime.now() - datetime.timedelta(days=100)
+        dt = self.now - datetime.timedelta(days=100)
         self.assertEqual('3.3 months ago', glossary.datetime_to_age_str(dt))
 
     def test_365_days_ago(self):
-        dt = datetime.datetime.now() - datetime.timedelta(days=365)
+        dt = self.now - datetime.timedelta(days=365)
         self.assertEqual('1.0 years ago', glossary.datetime_to_age_str(dt))
 
     def test_450_days_ago(self):
-        dt = datetime.datetime.now() - datetime.timedelta(days=450)
+        dt = self.now - datetime.timedelta(days=450)
         self.assertEqual('1.2 years ago', glossary.datetime_to_age_str(dt))
