@@ -202,8 +202,8 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         return entry_data
 
-    def get_similar_words(self, fragment, limit=10):
-        fragment = '%{}%'.format(fragment)
+    def get_similar_words(self, search_str, limit=10):
+        search_str = '%{}%'.format(search_str)
 
         sql = """
             SELECT DISTINCT entry
@@ -213,7 +213,24 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
             LIMIT ?
         """
 
-        results = self.db.execute(sql, (fragment, limit))
+        results = self.db.execute(sql, (search_str, limit))
+
+        return [r[0] for r in results]
+
+    def search_definitions(self, search_str):
+        """
+        Returns entries whose definitions contain the search string.
+        """
+        search_str = '%{}%'.format(search_str)
+
+        sql = """
+            SELECT DISTINCT entry
+            FROM glossary
+            WHERE definition LIKE ?
+            ORDER BY entry
+        """
+
+        results = self.db.execute(sql, (search_str, ))
 
         return [r[0] for r in results]
 
@@ -403,12 +420,15 @@ def handle_definition_add(nick, rest):
 def handle_search(rest):
     term = rest.split('search', 1)[-1].strip()
 
-    matches = Glossary.store.get_similar_words(term)
+    entry_matches = set(Glossary.store.get_similar_words(term))
+    def_matches = set(Glossary.store.search_definitions(term))
+
+    matches = entry_matches | def_matches
 
     if not matches:
         return 'No glossary results found.'
     else:
-        return u'Glossary entries: {}'.format(u', '.join(matches))
+        return u'Relevant entries: {}'.format(u', '.join(matches))
 
 
 @command('glossary', aliases=ALIASES, doc=DOCS_STR)
