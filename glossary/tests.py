@@ -54,7 +54,7 @@ class GlossaryTestCase(unittest.TestCase):
     def _call_whatis(self, rest, nick=None):
         nick = nick or self.TEST_NICK
 
-        return glossary.get(
+        return glossary.query(
             client='client',
             event='event',
             channel='channel',
@@ -151,7 +151,7 @@ class GlossaryTestCase(unittest.TestCase):
         expected_age = glossary.datetime_to_age_str(datetime.datetime.utcnow())
 
         expected_zero = '"0" is not a valid glossary entry number for "fish".'
-        self.assertEqual(self._call_whatis('fish 0'), expected_zero)
+        self.assertEqual(self._call_whatis('fish: 0'), expected_zero)
 
         # Fetch the first definition
         expected_1 = glossary.QUERY_RESULT_TEMPLATE.format(
@@ -162,7 +162,7 @@ class GlossaryTestCase(unittest.TestCase):
             author=author,
             age=expected_age
         )
-        result = self._call_whatis('fish 1')
+        result = self._call_whatis('fish: 1')
         self.assertEqual(result, expected_1)
 
         # Fetch the second definition
@@ -174,7 +174,7 @@ class GlossaryTestCase(unittest.TestCase):
             author=author,
             age=expected_age
         )
-        result = self._call_whatis('fish 2')
+        result = self._call_whatis('fish: 2')
         self.assertEqual(result, expected_2)
 
         # Fetch the third definition
@@ -186,7 +186,7 @@ class GlossaryTestCase(unittest.TestCase):
             author=author,
             age=expected_age
         )
-        result = self._call_whatis('fish 3')
+        result = self._call_whatis('fish: 3')
         self.assertEqual(result, expected_3)
 
         # Fetch the default (latest) definition

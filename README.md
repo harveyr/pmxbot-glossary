@@ -4,6 +4,8 @@ Glossary extension for [pmxbot](https://bitbucket.org/yougov/pmxbot/wiki/Home).
 
 [![Build Status](https://travis-ci.org/harveyr/pmxbot-glossary.svg?branch=master)](https://travis-ci.org/harveyr/pmxbot-glossary)
 
+**Note that this will override the default pmxbot !define command.**
+
 ## Command Examples
 
 **Get a definition**
@@ -24,7 +26,7 @@ This creates a new definition without overwriting the old one.
 
 **Get an older definition**
 
-`!whatis carrot 1`
+`!whatis carrot: 1`
 
 This returns the first definition. `!whatis carrot 2` would return the second, and so on.
 

@@ -12,17 +12,20 @@ from pmxbot import storage
 from pmxbot.core import command
 
 DEFINE_COMMAND = 'define'
-GET_COMMAND = 'whatis'
+QUERY_COMMAND = 'whatis'
+SEARCH_COMMAND = 'search'
 
 HELP_DEFINE_STR = '!{} <entry>: <definition>'.format(DEFINE_COMMAND)
-HELP_QUERY_STR = '!{} <entry> [<num>]'.format(GET_COMMAND)
+HELP_QUERY_STR = '!{} <entry> [<num>]'.format(QUERY_COMMAND)
+HELP_SEARCH_STR = '!{} <search terms>'.format(SEARCH_COMMAND)
 
 DOCS_STR = (
     'To define a glossary entry: `{}`. '
     'To get a definition: `{}`. '
+    'To search for entries: `{}`. '
     'Pass in an integer >= 1 to get a definition from the history. '
     'Get a random definition by omitting the entry argument.'
-).format(HELP_DEFINE_STR, HELP_QUERY_STR)
+).format(HELP_DEFINE_STR, HELP_QUERY_STR, HELP_SEARCH_STR)
 
 OOPS_STR = "I didn't understand that. " + DOCS_STR
 
@@ -279,7 +282,7 @@ def datetime_to_age_str(dt):
     return 'just now'
 
 
-def readable_join(items):
+def readable_join(items, joinery='or'):
     """
     Returns an oxford-comma-joined string with "or".
 
@@ -293,14 +296,21 @@ def readable_join(items):
     if count == 1:
         s = items[0]
     elif count == 2:
-        s = u' or '.join(items)
+        template = u' {} '.format(joinery)
+        s = template.join(items)
     else:
-        s = u'{}, or {}'.format(u', '.join(items[:-1]), items[-1])
+        s = u'{}, {} {}'.format(u', '.join(items[:-1]), joinery, items[-1])
 
     return s
 
 
 def get_alternative_suggestions(entry):
+    """
+    Returns a set of entries that may be similar to the provided entry.
+
+    Useful for trying to find near misses. E.g., "run" is not defined but
+    "running" is.
+    """
     query_words = set()
 
     for delim in (' ', '-', '_'):
@@ -339,7 +349,9 @@ def handle_nth_definition(entry, num=None):
     If ``num`` is passed, it will return the corresponding numbered, historical
     definition for the entry.
     """
-    if num:
+    entry = entry.strip()
+
+    if num is not None:
         try:
             num = int(num)
         except (ValueError, TypeError):
@@ -362,6 +374,8 @@ def handle_nth_definition(entry, num=None):
             age=datetime_to_age_str(query_result.datetime)
         )
 
+    # No result found. Let's see if there are any similar entries that may be
+    # helpful.
     suggestions = list(get_alternative_suggestions(entry))[:10]
 
     if suggestions:
@@ -375,17 +389,26 @@ def handle_nth_definition(entry, num=None):
 
 
 def handle_search(rest):
+    """
+    Returns formatted list of entries found with the given search string.
+    """
     term = rest.split('search', 1)[-1].strip()
 
     entry_matches = set(Glossary.store.get_similar_words(term))
     def_matches = set(Glossary.store.search_definitions(term))
 
-    matches = entry_matches | def_matches
+    matches = sorted(list(entry_matches | def_matches))
 
     if not matches:
         return 'No glossary results found.'
     else:
-        return u'Relevant entries: {}'.format(u', '.join(matches))
+        result = (
+            u'Found glossary entries: {}. To get a definition: !{} <entry>'
+        ).format(readable_join(matches, joinery='and'), QUERY_COMMAND)
+
+        return result
+
+
 
 
 @command(DEFINE_COMMAND, doc=DOCS_STR)
@@ -394,6 +417,9 @@ def define(client, event, channel, nick, rest):
     Add a definition for a glossary entry.
     """
     rest = rest.strip()
+
+    if rest.lower() == 'help':
+        return DOCS_STR
 
     if not ':' in rest:
         return OOPS_STR
@@ -430,17 +456,36 @@ def define(client, event, channel, nick, rest):
     )
 
 
-@command(GET_COMMAND, doc=DOCS_STR)
-def get(client, event, channel, nick, rest):
+@command(QUERY_COMMAND, doc=DOCS_STR)
+def query(client, event, channel, nick, rest):
+    rest = rest.strip()
+
     if not rest:
         return handle_random_query()
 
-    parts = rest.strip().split()
+    if rest.lower() == 'help':
+        return DOCS_STR
 
-    if parts[-1].isdigit():
-        entry = ' '.join(parts[:-1])
-        num = int(parts[-1])
+    if ':' in rest:
+        parts = rest.split(':', 1)
+        entry, num = parts[0].strip(), parts[1].strip()
+
+        if not num.isdigit():
+            return OOPS_STR
 
         return handle_nth_definition(entry, num)
 
     return handle_nth_definition(rest)
+
+
+@command(SEARCH_COMMAND, doc=DOCS_STR)
+def search(client, event, channel, nick, rest):
+    rest = rest.strip()
+
+    if rest.lower() == 'help':
+        return DOCS_STR
+
+    if not rest:
+        return OOPS_STR
+
+    return handle_search(rest)
