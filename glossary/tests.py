@@ -36,14 +36,25 @@ class GlossaryTestCase(unittest.TestCase):
         definition_dict = definition_dict or self.TEST_DEFINITIONS
 
         for entry, definition in definition_dict.items():
-            self._call_quote(
-                'define {}: {}'.format(entry, definition), nick=self.TEST_NICK
+            self._call_define(
+                '{}: {}'.format(entry, definition), nick=self.TEST_NICK
             )
 
-    def _call_quote(self, rest, nick=None):
+    def _call_define(self, rest, nick=None):
         nick = nick or self.TEST_NICK
 
-        return glossary.quote(
+        return glossary.define(
+            client='client',
+            event='event',
+            channel='channel',
+            nick=nick,
+            rest=rest
+        )
+
+    def _call_whatis(self, rest, nick=None):
+        nick = nick or self.TEST_NICK
+
+        return glossary.get(
             client='client',
             event='event',
             channel='channel',
@@ -55,9 +66,9 @@ class GlossaryTestCase(unittest.TestCase):
         author = 'bojangles'
         entry = 'fish'
         definition = 'a swimmy thingy'
-        rest = 'define {}: {}'.format(entry, definition)
+        rest = '{}: {}'.format(entry, definition)
 
-        add_result = self._call_quote(rest, nick=author)
+        add_result = self._call_define(rest, nick=author)
 
         self.assertEqual(
             add_result,
@@ -76,7 +87,7 @@ class GlossaryTestCase(unittest.TestCase):
             age=glossary.datetime_to_age_str(datetime.datetime.utcnow())
         )
 
-        result = self._call_quote(entry)
+        result = self._call_whatis(entry)
 
         self.assertEqual(result, expected)
 
@@ -84,9 +95,9 @@ class GlossaryTestCase(unittest.TestCase):
         entry = u'\u2603'
         definition = u'a snowman, like \u2603'
 
-        self._call_quote(u'define {}: {}'.format(entry, definition))
+        self._call_define(u'{}: {}'.format(entry, definition))
 
-        result = self._call_quote(entry)
+        result = self._call_whatis(entry)
 
         expected = glossary.QUERY_RESULT_TEMPLATE.format(
             entry=entry,
@@ -102,9 +113,9 @@ class GlossaryTestCase(unittest.TestCase):
     def test_add_and_retrieve_entry_with_spaces(self):
         entry = 'a fish called wanda'
         definition = 'a fish named wanda'
-        self._call_quote('define {}:{}'.format(entry, definition))
+        self._call_define('{}:{}'.format(entry, definition))
 
-        result = self._call_quote(entry)
+        result = self._call_whatis(entry)
 
         expected = glossary.QUERY_RESULT_TEMPLATE.format(
             entry=entry,
@@ -126,23 +137,21 @@ class GlossaryTestCase(unittest.TestCase):
             'dinner'
         )
 
-        self._call_quote(
-            'define {}: {}'.format(entry, definitions[0]), nick=author
+        self._call_define(
+            '{}: {}'.format(entry, definitions[0]), nick=author
         )
-        self._call_quote(
-            'define {}: {}'.format(entry, definitions[1]), nick=author
+        self._call_define(
+            '{}: {}'.format(entry, definitions[1]), nick=author
         )
-        self._call_quote(
-            'define {}: {}'.format(entry, definitions[2]), nick=author
+        self._call_define(
+            '{}: {}'.format(entry, definitions[2]), nick=author
         )
 
         expected_total = len(definitions)
         expected_age = glossary.datetime_to_age_str(datetime.datetime.utcnow())
 
-        expected_zero = (
-            '0 is not a valid entry number for fish. ' + glossary.FOR_HELP_STR
-        )
-        self.assertEqual(self._call_quote('fish 0'), expected_zero)
+        expected_zero = '"0" is not a valid glossary entry number for "fish".'
+        self.assertEqual(self._call_whatis('fish 0'), expected_zero)
 
         # Fetch the first definition
         expected_1 = glossary.QUERY_RESULT_TEMPLATE.format(
@@ -153,7 +162,7 @@ class GlossaryTestCase(unittest.TestCase):
             author=author,
             age=expected_age
         )
-        result = self._call_quote('fish 1')
+        result = self._call_whatis('fish 1')
         self.assertEqual(result, expected_1)
 
         # Fetch the second definition
@@ -165,7 +174,7 @@ class GlossaryTestCase(unittest.TestCase):
             author=author,
             age=expected_age
         )
-        result = self._call_quote('fish 2')
+        result = self._call_whatis('fish 2')
         self.assertEqual(result, expected_2)
 
         # Fetch the third definition
@@ -177,11 +186,11 @@ class GlossaryTestCase(unittest.TestCase):
             author=author,
             age=expected_age
         )
-        result = self._call_quote('fish 3')
+        result = self._call_whatis('fish 3')
         self.assertEqual(result, expected_3)
 
         # Fetch the default (latest) definition
-        result = self._call_quote('fish')
+        result = self._call_whatis('fish')
         self.assertEqual(result, expected_3)
 
     def test_get_random_definition(self):
@@ -190,7 +199,7 @@ class GlossaryTestCase(unittest.TestCase):
         expected_entries = set(self.TEST_DEFINITIONS.keys())
 
         for i in range(20):
-            result = self._call_quote('')
+            result = self._call_whatis('')
             entry = result.split('(', 1)[0].strip()
             definition = result.split(':')[-1].strip()
 
@@ -244,7 +253,7 @@ class GlossaryTestCase(unittest.TestCase):
             entry = 'entry' + punct_char
             definition = 'a super disallowed entry'
 
-            result = self._call_quote('define {}: {}'.format(entry, definition))
+            result = self._call_define('{}: {}'.format(entry, definition))
 
             if punct_char == ':':
                 expected = (

@@ -9,9 +9,11 @@ import pmxbot
 from pmxbot import storage
 from pmxbot.core import command
 
-ALIASES = ('whatis', )
-HELP_DEFINE_STR = '!{} define <entry>: <definition>'.format(ALIASES[0])
-HELP_QUERY_STR = '!{} <entry> [<num>]'.format(ALIASES[0])
+DEFINE_COMMAND = 'define'
+GET_COMMAND = 'whatis'
+
+HELP_DEFINE_STR = '!{} <entry>: <definition>'.format(DEFINE_COMMAND)
+HELP_QUERY_STR = '!{} <entry> [<num>]'.format(GET_COMMAND)
 
 DOCS_STR = (
     'To define a glossary entry: `{}`. '
@@ -20,13 +22,11 @@ DOCS_STR = (
     'Get a random definition by omitting the entry argument.'
 ).format(HELP_DEFINE_STR, HELP_QUERY_STR)
 
-FOR_HELP_STR = 'For help: !{} help'.format(ALIASES[0])
-
-OOPS_STR = 'One of us screwed this up. Hopefully you. ' + FOR_HELP_STR
+OOPS_STR = "I didn't understand that. " + DOCS_STR
 
 ADD_DEFINITION_RESULT_TEMPLATE = u'Okay! "{entry}" is now "{definition}"'
 
-QUERY_RESULT_TEMPLATE =(
+QUERY_RESULT_TEMPLATE = (
     u'{entry} ({num}/{total}): {definition} [by {author}, {age}]'
 )
 
@@ -38,13 +38,13 @@ class Glossary(storage.SelectableStorage):
     The usage of SelectableStorage, SQLiteStorage, and cls.store are cribbed
     from the pmxbot quotes module.
     """
-
-    RESERVED_WORDS = ('help', 'define', 'search')
-
     @classmethod
     def initialize(cls, db_uri=None, load_fixtures=True):
         db_uri = db_uri or pmxbot.config.database
         cls.store = cls.from_URI(db_uri)
+
+        # for item in Handler._registry:
+        #     print(item)
 
         if load_fixtures:
             cls.load_fixtures()
@@ -347,8 +347,8 @@ def handle_nth_definition(entry, num=None):
     try:
         query_result = Glossary.store.get_entry_data(entry, num)
     except IndexError:
-        return u'{} is not a valid entry number for {}. {}'.format(
-            num, entry, FOR_HELP_STR
+        return u'"{}" is not a valid glossary entry number for "{}".'.format(
+            num, entry
         )
 
     if query_result:
@@ -373,10 +373,27 @@ def handle_nth_definition(entry, num=None):
     return u'"{}" is undefined.{}'.format(entry, suggestion_str)
 
 
-def handle_definition_add(nick, rest):
+def handle_search(rest):
+    term = rest.split('search', 1)[-1].strip()
+
+    entry_matches = set(Glossary.store.get_similar_words(term))
+    def_matches = set(Glossary.store.search_definitions(term))
+
+    matches = entry_matches | def_matches
+
+    if not matches:
+        return 'No glossary results found.'
+    else:
+        return u'Relevant entries: {}'.format(u', '.join(matches))
+
+
+@command(DEFINE_COMMAND, doc=DOCS_STR)
+def define(client, event, channel, nick, rest):
     """
-    Attempt to save a new definition.
+    Add a definition for a glossary entry.
     """
+    rest = rest.strip()
+
     if not ':' in rest:
         return OOPS_STR
 
@@ -388,12 +405,7 @@ def handle_definition_add(nick, rest):
     if len(parts) != 2:
         return OOPS_STR
 
-    entry = parts[0].split('define', 1)[-1].strip()
-
-    if entry in Glossary.RESERVED_WORDS:
-        return (
-            '"{}" is a reserved glossary word. It cannot be defined.'
-        ).format(entry)
+    entry = parts[0].strip()
 
     invalid_char = next((c for c in entry if c in string.punctuation), None)
 
@@ -417,38 +429,8 @@ def handle_definition_add(nick, rest):
     )
 
 
-def handle_search(rest):
-    term = rest.split('search', 1)[-1].strip()
-
-    entry_matches = set(Glossary.store.get_similar_words(term))
-    def_matches = set(Glossary.store.search_definitions(term))
-
-    matches = entry_matches | def_matches
-
-    if not matches:
-        return 'No glossary results found.'
-    else:
-        return u'Relevant entries: {}'.format(u', '.join(matches))
-
-
-@command('glossary', aliases=ALIASES, doc=DOCS_STR)
-def quote(client, event, channel, nick, rest):
-    """
-    Glossary command. Handles all command versions.
-
-    Assumes `rest` is a unicode object.
-    """
-    rest = rest.strip()
-
-    if rest.startswith('define '):
-        return handle_definition_add(nick, rest)
-
-    if rest.startswith('search '):
-        return handle_search(rest)
-
-    if rest.startswith('help'):
-        return DOCS_STR
-
+@command(GET_COMMAND, doc=DOCS_STR)
+def get(client, event, channel, nick, rest):
     if not rest:
         return handle_random_query()
 
