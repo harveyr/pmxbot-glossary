@@ -12,13 +12,13 @@ Glossary extension for [pmxbot](https://bitbucket.org/yougov/pmxbot/wiki/Home).
 
 **Add a definition**
 
-`!whatis define carrot: An orange rod`
+`!define carrot: An orange rod`
 
 **Update a definition**
 
 Same as adding one:
 
-`!whatis define carrot: An orange vegetable. For more, see http://en.wikipedia.org/wiki/Carrot`
+`!define carrot: An orange vegetable. For more, see http://en.wikipedia.org/wiki/Carrot`
 
 This creates a new definition without overwriting the old one.
 
