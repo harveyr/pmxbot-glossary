@@ -68,6 +68,9 @@ class Glossary(storage.SelectableStorage):
     def save_entries(cls, data):
         """
         Save a dictionary of entries and definitions to the store.
+
+        If the definition already exists in the history for the entry,
+        this will not re-add it.
         """
         for entry, definition in data.items():
             existing = cls.store.get_all_records_for_entry(entry)
@@ -108,8 +111,6 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
           INSERT INTO glossary (entry, definition, author)
           VALUES (?, ?, ?)
         """
-
-        # timestamp = int(time.mktime(datetime.datetime.utcnow().utctimetuple()))
 
         self.db.execute(sql, (entry, definition, author))
         self.db.commit()
