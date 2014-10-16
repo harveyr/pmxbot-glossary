@@ -206,7 +206,7 @@ class GlossaryTestCase(unittest.TestCase):
             self.assertIn(entry, expected_entries)
 
             expected_definition = (
-                '{} [by {}, just now]'.format(
+                '{} [defined by {} just now]'.format(
                     self.TEST_DEFINITIONS[entry],
                     self.TEST_NICK
                 )

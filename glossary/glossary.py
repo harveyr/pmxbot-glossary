@@ -5,6 +5,8 @@ import string
 import time
 from collections import namedtuple
 
+from dateutil.parser import parse as parse_date
+
 import pmxbot
 from pmxbot import storage
 from pmxbot.core import command
@@ -27,7 +29,7 @@ OOPS_STR = "I didn't understand that. " + DOCS_STR
 ADD_DEFINITION_RESULT_TEMPLATE = u'Okay! "{entry}" is now "{definition}"'
 
 QUERY_RESULT_TEMPLATE = (
-    u'{entry} ({num}/{total}): {definition} [by {author}, {age}]'
+    u'{entry} ({num}/{total}): {definition} [defined by {author} {age}]'
 )
 
 
@@ -42,9 +44,6 @@ class Glossary(storage.SelectableStorage):
     def initialize(cls, db_uri=None, load_fixtures=True):
         db_uri = db_uri or pmxbot.config.database
         cls.store = cls.from_URI(db_uri)
-
-        # for item in Handler._registry:
-        #     print(item)
 
         if load_fixtures:
             cls.load_fixtures()
@@ -75,18 +74,17 @@ class Glossary(storage.SelectableStorage):
             existing_defs = [e.definition for e in existing]
 
             if definition not in existing_defs:
-                cls.store.add_entry(entry, definition, '<default>')
+                cls.store.add_entry(entry, definition, 'the defaults')
 
 
 class SQLiteGlossary(Glossary, storage.SQLiteStorage):
     CREATE_GLOSSARY_SQL = """
       CREATE TABLE IF NOT EXISTS glossary (
-       entryid INTEGER NOT NULL,
+       entryid INTEGER PRIMARY KEY AUTOINCREMENT,
        entry VARCHAR NOT NULL,
        definition TEXT NOT NULL,
        author VARCHAR NOT NULL,
-       timestamp INTEGER NOT NULL,
-       PRIMARY KEY (entryid)
+       timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     """
 
@@ -107,13 +105,13 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         entry = entry.lower()
 
         sql = """
-          INSERT INTO glossary (entry, definition, author, timestamp)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO glossary (entry, definition, author)
+          VALUES (?, ?, ?)
         """
 
-        timestamp = int(time.mktime(datetime.datetime.utcnow().utctimetuple()))
+        # timestamp = int(time.mktime(datetime.datetime.utcnow().utctimetuple()))
 
-        self.db.execute(sql, (entry, definition, author, timestamp))
+        self.db.execute(sql, (entry, definition, author))
         self.db.commit()
 
         if self.ALL_ENTRIES_CACHE_KEY in self.cache:
@@ -189,12 +187,14 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         total_count = len(results)
 
         for i, row in enumerate(results):
+            datetime_ = parse_date(row[-1])
+
             entry_data.append(
                 GlossaryQueryResult(
                     row[0],
                     row[1],
                     row[2],
-                    datetime.datetime.fromtimestamp(float(row[-1])),
+                    datetime_,
                     i,
                     total_count
                 )
