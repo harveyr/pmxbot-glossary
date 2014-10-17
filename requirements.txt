@@ -1,2 +1,2 @@
-pmxbot>=1107.1
-python-dateutil>=2.2
+pmxbot==1107.1
+python-dateutil==2.2
