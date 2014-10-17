@@ -58,14 +58,22 @@ class Glossary(storage.SelectableStorage):
         del cls.store
 
     @classmethod
-    def load_fixtures(cls, path='glossary_fixtures.json'):
+    def load_fixtures(cls, path=None):
+        config_path_key = 'glossary_fixtures_path'
+
+        if not path:
+            path = pmxbot.config.get(config_path_key)
+
+        if not path:
+            print('- No fixtures path provided.')
+
         try:
             with open(path) as f:
-                print('- Loading fixture data from ' + path)
+                print('- Loading fixtures from ' + path)
                 data = json.load(f)
                 cls.save_entries(data)
         except IOError:
-            print('- No fixture data found.')
+            print('- No fixtures file found at path {}'.format(path))
 
     @classmethod
     def save_entries(cls, data):
@@ -458,6 +466,9 @@ def define(client, event, channel, nick, rest):
 
 @command(QUERY_COMMAND, doc=DOCS_STR)
 def query(client, event, channel, nick, rest):
+    """
+    Retrieve a definition of an entry.
+    """
     rest = rest.strip()
 
     if not rest:
@@ -480,6 +491,9 @@ def query(client, event, channel, nick, rest):
 
 @command(SEARCH_COMMAND, doc=DOCS_STR)
 def search(client, event, channel, nick, rest):
+    """
+    Search the entries and defintions.
+    """
     rest = rest.strip()
 
     if rest.lower() == 'help':
