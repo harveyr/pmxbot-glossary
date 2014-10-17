@@ -115,6 +115,10 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         self.db.execute(self.CREATE_GLOSSARY_INDEX_SQL)
         self.db.commit()
 
+    def bust_all_entries_cache(self):
+        if self.ALL_ENTRIES_CACHE_KEY in self.cache:
+            del self.cache[self.ALL_ENTRIES_CACHE_KEY]
+
     def add_entry(self, entry, definition, author):
         entry = entry.lower()
 
@@ -125,9 +129,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         self.db.execute(sql, (entry, definition, author))
         self.db.commit()
-
-        if self.ALL_ENTRIES_CACHE_KEY in self.cache:
-            del self.cache[self.ALL_ENTRIES_CACHE_KEY]
+        self.bust_all_entries_cache()
 
         return self.get_entry_data(entry)
 
@@ -138,7 +140,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         cache_key = 'all_entries'
         entries = self.cache.get(cache_key)
 
-        if not entries:
+        if entries is None:
             sql = """
               SELECT DISTINCT entry
               FROM glossary
@@ -167,6 +169,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         If ``num`` is provided, returns the object for that version of the
         definition in history.
         """
+        # Entry numbering starts at 1
         if num is not None and num < 1:
             raise IndexError
 
@@ -272,7 +275,6 @@ def datetime_to_age_str(dt):
         return 'yesterday'
 
     seconds = age.total_seconds()
-    minutes = int(seconds / 60)
     hours = int(seconds / 3600)
 
     if hours > 1:
@@ -280,6 +282,8 @@ def datetime_to_age_str(dt):
 
     if hours == 1:
         return '1 hour ago'
+
+    minutes = int(seconds / 60)
 
     if minutes > 1:
         return '{} minutes ago'.format(minutes)
@@ -290,9 +294,9 @@ def datetime_to_age_str(dt):
     return 'just now'
 
 
-def readable_join(items, joinery='or'):
+def readable_join(items, conjunction='or'):
     """
-    Returns an oxford-comma-joined string with "or".
+    Returns an oxford-comma-joined string with "or."
 
     E.g., ['thing1', 'thing2', 'thing3'] becomes "thing1, thing2, or thing3".
     """
@@ -304,10 +308,10 @@ def readable_join(items, joinery='or'):
     if count == 1:
         s = items[0]
     elif count == 2:
-        template = u' {} '.format(joinery)
+        template = u' {} '.format(conjunction)
         s = template.join(items)
     else:
-        s = u'{}, {} {}'.format(u', '.join(items[:-1]), joinery, items[-1])
+        s = u'{}, {} {}'.format(u', '.join(items[:-1]), conjunction, items[-1])
 
     return s
 
@@ -382,8 +386,8 @@ def handle_nth_definition(entry, num=None):
             age=datetime_to_age_str(query_result.datetime)
         )
 
-    # No result found. Let's see if there are any similar entries that may be
-    # helpful.
+    # No result found. Check if there are any similar entries that may be
+    # relevant.
     suggestions = list(get_alternative_suggestions(entry))[:10]
 
     if suggestions:
@@ -412,7 +416,7 @@ def handle_search(rest):
     else:
         result = (
             u'Found glossary entries: {}. To get a definition: !{} <entry>'
-        ).format(readable_join(matches, joinery='and'), QUERY_COMMAND)
+        ).format(readable_join(matches, conjunction='and'), QUERY_COMMAND)
 
         return result
 

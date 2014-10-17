@@ -331,7 +331,7 @@ class AgeStringTestCase(unittest.TestCase):
 
     def test_just_now_str_under_minute(self):
         dt = self.now - datetime.timedelta(seconds=55)
-        self.assertEqual('just now', glossary.datetime_to_age_str(self.now))
+        self.assertEqual('just now', glossary.datetime_to_age_str(dt))
 
     def test_minute_ago(self):
         dt = self.now - datetime.timedelta(seconds=60)
