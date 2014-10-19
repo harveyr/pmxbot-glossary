@@ -1,3 +1,4 @@
+import calendar
 import datetime
 import json
 import random
@@ -14,6 +15,7 @@ from pmxbot.core import command
 DEFINE_COMMAND = 'define'
 QUERY_COMMAND = 'whatis'
 SEARCH_COMMAND = 'search'
+JUMPTO_COMMAND = 'jumpto'
 
 HELP_DEFINE_STR = '!{} <entry>: <definition>'.format(DEFINE_COMMAND)
 HELP_QUERY_STR = '!{} <entry> [<num>]'.format(QUERY_COMMAND)
@@ -32,7 +34,8 @@ OOPS_STR = "I didn't understand that. " + DOCS_STR
 ADD_DEFINITION_RESULT_TEMPLATE = u'Okay! "{entry}" is now "{definition}"'
 
 QUERY_RESULT_TEMPLATE = (
-    u'{entry} ({num}/{total}): {definition} [defined by {author} {age}]'
+    u'{entry} ({num}/{total}): {definition} '
+    u'[defined by {author} {age}{channel_str}]'
 )
 
 
@@ -98,7 +101,8 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
        entry VARCHAR NOT NULL,
        definition TEXT NOT NULL,
        author VARCHAR NOT NULL,
-       timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+       channel VARCHAR,
+       timestamp DATE DEFAULT (datetime('now','utc'))
     )
     """
 
@@ -119,15 +123,15 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         if self.ALL_ENTRIES_CACHE_KEY in self.cache:
             del self.cache[self.ALL_ENTRIES_CACHE_KEY]
 
-    def add_entry(self, entry, definition, author):
+    def add_entry(self, entry, definition, author, channel=None):
         entry = entry.lower()
 
         sql = """
-          INSERT INTO glossary (entry, definition, author)
-          VALUES (?, ?, ?)
+          INSERT INTO glossary (entry, definition, author, channel)
+          VALUES (?, ?, ?, ?)
         """
 
-        self.db.execute(sql, (entry, definition, author))
+        self.db.execute(sql, (entry, definition, author, channel))
         self.db.commit()
         self.bust_all_entries_cache()
 
@@ -190,7 +194,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         entry = entry.lower()
 
         sql = """
-            SELECT entry, definition, author, timestamp
+            SELECT entry, definition, author, channel, timestamp
             FROM glossary
             WHERE entry LIKE ?
             ORDER BY timestamp
@@ -209,6 +213,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
                     row[0],
                     row[1],
                     row[2],
+                    row[3],
                     datetime_,
                     i,
                     total_count
@@ -251,7 +256,8 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
 
 GlossaryQueryResult = namedtuple(
-    'GlossaryQueryResult', 'entry definition author datetime index total_count'
+    'GlossaryQueryResult',
+    'entry definition author channel datetime index total_count'
 )
 
 
@@ -376,6 +382,11 @@ def handle_nth_definition(entry, num=None):
             num, entry
         )
 
+    if query_result.channel:
+        channel_str = ' in ' + query_result.channel
+    else:
+        channel_str = ''
+
     if query_result:
         return QUERY_RESULT_TEMPLATE.format(
             entry=query_result.entry,
@@ -383,7 +394,8 @@ def handle_nth_definition(entry, num=None):
             total=query_result.total_count,
             definition=query_result.definition,
             author=query_result.author,
-            age=datetime_to_age_str(query_result.datetime)
+            age=datetime_to_age_str(query_result.datetime),
+            channel_str=channel_str
         )
 
     # No result found. Check if there are any similar entries that may be
@@ -460,7 +472,7 @@ def define(client, event, channel, nick, rest):
     if existing and existing.definition == definition:
         return "That's already the current definition."
 
-    result = Glossary.store.add_entry(entry, definition, author=nick)
+    result = Glossary.store.add_entry(entry, definition, nick, channel)
 
     return ADD_DEFINITION_RESULT_TEMPLATE.format(
         entry=result.entry,
@@ -507,3 +519,48 @@ def search(client, event, channel, nick, rest):
         return OOPS_STR
 
     return handle_search(rest)
+
+
+@command(JUMPTO_COMMAND, doc=DOCS_STR)
+def jumpto(client, event, channel, nick, rest):
+
+    slack_url = pmxbot.config.get('slack_url')
+
+    if not slack_url:
+        return 'Slack URL is not configured.'
+
+    rest = rest.strip()
+
+    if rest.lower() == 'help':
+        return DOCS_STR
+
+    if not rest:
+        return OOPS_STR
+
+    entry = Glossary.store.get_entry_data(rest)
+
+    if not entry:
+        return u"{} is undefined.".format(rest)
+
+    timestamp = calendar.timegm(entry.datetime.utctimetuple())
+
+    channel = entry.channel
+
+    if not channel:
+        return (
+            u"I don't know which channel {} was defined in. "
+            u"If it's redefined, I can try again."
+        ).format(rest)
+
+    if channel.startswith('#'):
+        channel = channel[1:]
+
+    url = '{slack_url}/archives/{channel}/p{timestamp}'.format(
+        slack_url=slack_url,
+        channel=channel,
+        timestamp=timestamp * 1000000
+    )
+
+    template = '[Experimental] Attempting to link to Slack archives at {}: {}'
+
+    return template.format(entry.datetime.ctime(), url)
