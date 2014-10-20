@@ -84,13 +84,14 @@ class GlossaryTestCase(unittest.TestCase):
 
         self.assertEqual(dumped_entries, expected_entries)
 
+        # Reloading what's already in the db should not affect anything.
         loaded_entries, inserted = glossary.Glossary.store.load_from_json(
             filepath
         )
-
         self.assertEqual(len(inserted), 0)
         self.assertEqual(len(loaded_entries), len(expected_entries))
 
+        # Loading into a clean db should insert all the things.
         self.wipe_and_init_glossary()
         glossary.Glossary.store.bust_all_entries_cache()
 
