@@ -40,6 +40,15 @@ class GlossaryTestCase(unittest.TestCase):
                 '{}: {}'.format(entry, definition), nick=self.TEST_NICK
             )
 
+    def _call_search(self, rest):
+        return glossary.search(
+            client='client',
+            event='event',
+            channel='channel',
+            nick=self.TEST_NICK,
+            rest=rest
+        )
+
     def _call_define(self, rest, nick=None):
         nick = nick or self.TEST_NICK
 
@@ -84,12 +93,45 @@ class GlossaryTestCase(unittest.TestCase):
             total=1,
             definition=definition,
             author=author,
-            age=glossary.datetime_to_age_str(datetime.datetime.utcnow())
+            age=glossary.datetime_to_age_str(datetime.datetime.utcnow()),
+            channel_str=' in channel'
         )
 
         result = self._call_whatis(entry)
 
         self.assertEqual(result, expected)
+
+    def test_get_all_records(self):
+        """
+        All entries gets only the latest entry for a given entry_lower.
+        """
+        self._load_test_definitions({
+            'fish': 'swimmer',
+        })
+        self._load_test_definitions({
+            'FISH': 'big swimmer',
+        })
+        self._load_test_definitions({
+            'fisH': 'awkward swimmer',
+        })
+        self._load_test_definitions({
+            'FisH': 'symmetrical swimmer',
+        })
+        self._load_test_definitions({
+            'onion': 'yumm',
+        })
+        self._load_test_definitions({
+            'oNion': 'a thing',
+        })
+        self._load_test_definitions({
+            'onioN': 'snappy',
+        })
+
+        records = glossary.Glossary.store.get_all_records()
+
+        entries = {r.entry for r in records}
+
+        self.assertEqual(entries, {'FisH', 'onioN'})
 
     def test_add_and_retrieve_entry_with_unicode(self):
         entry = u'\u2603'
@@ -105,7 +147,8 @@ class GlossaryTestCase(unittest.TestCase):
             total=1,
             definition=definition,
             author=self.TEST_NICK,
-            age=glossary.datetime_to_age_str(datetime.datetime.utcnow())
+            age=glossary.datetime_to_age_str(datetime.datetime.utcnow()),
+            channel_str=' in channel'
         )
 
         self.assertEqual(result, expected)
@@ -123,7 +166,8 @@ class GlossaryTestCase(unittest.TestCase):
             total=1,
             definition=definition,
             author=self.TEST_NICK,
-            age=glossary.datetime_to_age_str(datetime.datetime.utcnow())
+            age=glossary.datetime_to_age_str(datetime.datetime.utcnow()),
+            channel_str=' in channel'
         )
 
         self.assertEqual(result, expected)
@@ -160,7 +204,8 @@ class GlossaryTestCase(unittest.TestCase):
             total=expected_total,
             definition=definitions[0],
             author=author,
-            age=expected_age
+            age=expected_age,
+            channel_str=' in channel'
         )
         result = self._call_whatis('fish: 1')
         self.assertEqual(result, expected_1)
@@ -172,7 +217,8 @@ class GlossaryTestCase(unittest.TestCase):
             total=expected_total,
             definition=definitions[1],
             author=author,
-            age=expected_age
+            age=expected_age,
+            channel_str=' in channel'
         )
         result = self._call_whatis('fish: 2')
         self.assertEqual(result, expected_2)
@@ -184,7 +230,8 @@ class GlossaryTestCase(unittest.TestCase):
             total=expected_total,
             definition=definitions[2],
             author=author,
-            age=expected_age
+            age=expected_age,
+            channel_str=' in channel'
         )
         result = self._call_whatis('fish: 3')
         self.assertEqual(result, expected_3)
@@ -206,7 +253,7 @@ class GlossaryTestCase(unittest.TestCase):
             self.assertIn(entry, expected_entries)
 
             expected_definition = (
-                '{} [defined by {} just now]'.format(
+                '{} [defined by {} just now in channel]'.format(
                     self.TEST_DEFINITIONS[entry],
                     self.TEST_NICK
                 )
@@ -216,7 +263,8 @@ class GlossaryTestCase(unittest.TestCase):
     def test_all_entries(self):
         self._load_test_definitions()
 
-        all_entries = set(glossary.Glossary.store.get_all_entries())
+        all_records = set(glossary.Glossary.store.get_all_records())
+        all_entries = {r.entry for r in all_records}
 
         self.assertEqual(all_entries, set(self.TEST_DEFINITIONS.keys()))
 
@@ -229,9 +277,11 @@ class GlossaryTestCase(unittest.TestCase):
             author='author'
         )
 
+        all_records_again = glossary.Glossary.store.get_all_records()
+
         self.assertEqual(
             all_entries | {new_entry, },
-            set(glossary.Glossary.store.get_all_entries())
+            {r.entry for r in all_records_again}
         )
 
     def test_get_words_like(self):
@@ -294,6 +344,18 @@ class GlossaryTestCase(unittest.TestCase):
             glossary.get_alternative_suggestions('zamboni'),
             set()
         )
+
+    def test_search(self):
+        self._call_define('fish: swimmer')
+        self._call_define('fisH: shugga')
+        self._call_define('fish head: the top part of a fish')
+        self._call_define('fissure: rip')
+        self._call_define('zamboni: big thingie')
+        self._call_define('FisH: shugga bomb')
+
+        result = self._call_search('fish')
+
+        self.assertIn(': FisH and fish head.', result)
 
 
 class ReadableJoinTestCase(unittest.TestCase):

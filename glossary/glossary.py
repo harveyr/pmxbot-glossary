@@ -3,7 +3,6 @@ import datetime
 import json
 import random
 import string
-import time
 from collections import namedtuple
 
 from dateutil.parser import parse as parse_date
@@ -15,7 +14,7 @@ from pmxbot.core import command
 DEFINE_COMMAND = 'define'
 QUERY_COMMAND = 'whatis'
 SEARCH_COMMAND = 'search'
-JUMPTO_COMMAND = 'jumpto'
+ARCHIVES_LINK_COMMAND = 'tardis'
 
 HELP_DEFINE_STR = '!{} <entry>: <definition>'.format(DEFINE_COMMAND)
 HELP_QUERY_STR = '!{} <entry> [<num>]'.format(QUERY_COMMAND)
@@ -37,6 +36,8 @@ QUERY_RESULT_TEMPLATE = (
     u'{entry} ({num}/{total}): {definition} '
     u'[defined by {author} {age}{channel_str}]'
 )
+
+UNDEFINED_TEMPLATE = u'"{}" is undefined.'
 
 
 class Glossary(storage.SelectableStorage):
@@ -99,6 +100,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
       CREATE TABLE IF NOT EXISTS glossary (
        entryid INTEGER PRIMARY KEY AUTOINCREMENT,
        entry VARCHAR NOT NULL,
+       entry_lower VARCHAR NOT NULL,
        definition TEXT NOT NULL,
        author VARCHAR NOT NULL,
        channel VARCHAR,
@@ -107,7 +109,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
     """
 
     CREATE_GLOSSARY_INDEX_SQL = """
-      CREATE INDEX IF NOT EXISTS ix_glossary_entry ON glossary(entry)
+      CREATE INDEX IF NOT EXISTS ix_glossary_entry ON glossary(entry_lower)
     """
 
     ALL_ENTRIES_CACHE_KEY = 'all_entries'
@@ -124,20 +126,20 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
             del self.cache[self.ALL_ENTRIES_CACHE_KEY]
 
     def add_entry(self, entry, definition, author, channel=None):
-        entry = entry.lower()
-
         sql = """
-          INSERT INTO glossary (entry, definition, author, channel)
-          VALUES (?, ?, ?, ?)
+          INSERT INTO glossary (entry, entry_lower, definition, author, channel)
+          VALUES (?, ?, ?, ?, ?)
         """
 
-        self.db.execute(sql, (entry, definition, author, channel))
+        self.db.execute(
+            sql, (entry, entry.lower(), definition, author, channel)
+        )
         self.db.commit()
         self.bust_all_entries_cache()
 
         return self.get_entry_data(entry)
 
-    def get_all_entries(self):
+    def get_all_records(self):
         """
         Returns list of all entries in the glossary.
         """
@@ -146,11 +148,38 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         if entries is None:
             sql = """
-              SELECT DISTINCT entry
+              SELECT entry,
+                entry_lower,
+                definition,
+                author,
+                channel,
+                strftime('%s', timestamp),
+                COUNT(entry_lower)
               FROM glossary
+              GROUP BY entry_lower
+              ORDER BY timestamp
             """
+
             query = self.db.execute(sql).fetchall()
-            entries = [r[0] for r in query]
+            entries = []
+
+            for row in query:
+                count = row[-1]
+                record = GlossaryRecord(
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    datetime.datetime.utcfromtimestamp(int(row[5])),
+                    count - 1,
+                    count
+                )
+
+                entries.append(record)
+
+            entries.sort(key=lambda x: x.entry_lower)
+
             self.cache[cache_key] = entries
 
         return entries
@@ -159,12 +188,12 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         """
         Returns a random entry from the glossary.
         """
-        entries = self.get_all_entries()
+        entries = self.get_all_records()
 
         if not entries:
             return None
 
-        return random.choice(entries)
+        return random.choice(entries).entry
 
     def get_entry_data(self, entry, num=None):
         """
@@ -194,9 +223,14 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         entry = entry.lower()
 
         sql = """
-            SELECT entry, definition, author, channel, timestamp
+            SELECT entry,
+              entry_lower,
+              definition,
+              author,
+              channel,
+              strftime('%s', timestamp)
             FROM glossary
-            WHERE entry LIKE ?
+            WHERE entry_lower LIKE ?
             ORDER BY timestamp
         """
 
@@ -206,15 +240,14 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         total_count = len(results)
 
         for i, row in enumerate(results):
-            datetime_ = parse_date(row[-1])
-
             entry_data.append(
-                GlossaryQueryResult(
+                GlossaryRecord(
                     row[0],
                     row[1],
                     row[2],
                     row[3],
-                    datetime_,
+                    row[4],
+                    datetime.datetime.utcfromtimestamp(int(row[5])),
                     i,
                     total_count
                 )
@@ -222,20 +255,13 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         return entry_data
 
-    def get_similar_words(self, search_str, limit=10):
-        search_str = '%{}%'.format(search_str)
+    def get_similar_words(self, search_str):
+        search_str = search_str.lower()
+        all_entries = self.get_all_records()
 
-        sql = """
-            SELECT DISTINCT entry
-            FROM glossary
-            WHERE entry LIKE ?
-            ORDER BY entry
-            LIMIT ?
-        """
+        matches = [e.entry for e in all_entries if search_str in e.entry_lower]
 
-        results = self.db.execute(sql, (search_str, limit))
-
-        return [r[0] for r in results]
+        return matches
 
     def search_definitions(self, search_str):
         """
@@ -255,9 +281,9 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         return [r[0] for r in results]
 
 
-GlossaryQueryResult = namedtuple(
+GlossaryRecord = namedtuple(
     'GlossaryQueryResult',
-    'entry definition author channel datetime index total_count'
+    'entry entry_lower definition author channel datetime index total_count'
 )
 
 
@@ -367,14 +393,6 @@ def handle_nth_definition(entry, num=None):
     If ``num`` is passed, it will return the corresponding numbered, historical
     definition for the entry.
     """
-    entry = entry.strip()
-
-    if num is not None:
-        try:
-            num = int(num)
-        except (ValueError, TypeError):
-            return OOPS_STR
-
     try:
         query_result = Glossary.store.get_entry_data(entry, num)
     except IndexError:
@@ -382,12 +400,12 @@ def handle_nth_definition(entry, num=None):
             num, entry
         )
 
-    if query_result.channel:
-        channel_str = ' in ' + query_result.channel
-    else:
-        channel_str = ''
-
     if query_result:
+        if query_result.channel:
+            channel_str = ' in ' + query_result.channel
+        else:
+            channel_str = ''
+
         return QUERY_RESULT_TEMPLATE.format(
             entry=query_result.entry,
             num=query_result.index + 1,
@@ -398,28 +416,30 @@ def handle_nth_definition(entry, num=None):
             channel_str=channel_str
         )
 
-    # No result found. Check if there are any similar entries that may be
-    # relevant.
+    response = UNDEFINED_TEMPLATE.format(entry)
+
+    # Check if there are any similar entries that may be relevant.
     suggestions = list(get_alternative_suggestions(entry))[:10]
 
     if suggestions:
-        suggestion_str = (
+        response += (
             u' May I interest you in {}?'.format(readable_join(suggestions))
         )
-    else:
-        suggestion_str = u''
 
-    return u'"{}" is undefined.{}'.format(entry, suggestion_str)
+    return response
 
 
 def handle_search(rest):
     """
     Returns formatted list of entries found with the given search string.
     """
-    term = rest.split('search', 1)[-1].strip()
+    entry_matches = set(Glossary.store.get_similar_words(rest))
+    lower_matches = {e.lower() for e in entry_matches}
 
-    entry_matches = set(Glossary.store.get_similar_words(term))
-    def_matches = set(Glossary.store.search_definitions(term))
+    def_matches = set(
+        e for e in Glossary.store.search_definitions(rest)
+        if e.lower() not in lower_matches
+    )
 
     matches = sorted(list(entry_matches | def_matches))
 
@@ -433,6 +453,32 @@ def handle_search(rest):
         return result
 
 
+def entry_number_command(func):
+    """
+    Decorator for commands that care about an entry string and possibly an
+    entry number.
+    """
+    def inner(client, event, channel, nick, rest):
+        rest = rest.strip()
+        num = None
+
+        if rest.lower() == 'help':
+            return DOCS_STR
+
+        if ':' in rest:
+            parts = rest.split(':', 1)
+            entry, num = parts[0].strip(), parts[1].strip()
+
+            try:
+                num = int(num)
+            except (ValueError, TypeError):
+                return OOPS_STR
+        else:
+            entry = rest
+
+        return func(entry, num)
+
+    return inner
 
 
 @command(DEFINE_COMMAND, doc=DOCS_STR)
@@ -481,66 +527,43 @@ def define(client, event, channel, nick, rest):
 
 
 @command(QUERY_COMMAND, doc=DOCS_STR)
-def query(client, event, channel, nick, rest):
+@entry_number_command
+def query(entry, num):
     """
     Retrieve a definition of an entry.
     """
-    rest = rest.strip()
-
-    if not rest:
+    if not entry:
         return handle_random_query()
 
-    if rest.lower() == 'help':
-        return DOCS_STR
-
-    if ':' in rest:
-        parts = rest.split(':', 1)
-        entry, num = parts[0].strip(), parts[1].strip()
-
-        if not num.isdigit():
-            return OOPS_STR
-
-        return handle_nth_definition(entry, num)
-
-    return handle_nth_definition(rest)
+    return handle_nth_definition(entry, num)
 
 
 @command(SEARCH_COMMAND, doc=DOCS_STR)
-def search(client, event, channel, nick, rest):
+@entry_number_command
+def search(entry, num=None):
     """
     Search the entries and defintions.
     """
-    rest = rest.strip()
-
-    if rest.lower() == 'help':
-        return DOCS_STR
-
-    if not rest:
+    # No `num` handled here.
+    if not entry or num:
         return OOPS_STR
 
-    return handle_search(rest)
+    return handle_search(entry)
 
 
-@command(JUMPTO_COMMAND, doc=DOCS_STR)
-def jumpto(client, event, channel, nick, rest):
+@command(ARCHIVES_LINK_COMMAND, doc=DOCS_STR)
+@entry_number_command
+def archives_link(rest, num=None):
 
     slack_url = pmxbot.config.get('slack_url')
 
     if not slack_url:
         return 'Slack URL is not configured.'
 
-    rest = rest.strip()
-
-    if rest.lower() == 'help':
-        return DOCS_STR
-
-    if not rest:
-        return OOPS_STR
-
-    entry = Glossary.store.get_entry_data(rest)
+    entry = Glossary.store.get_entry_data(rest, num)
 
     if not entry:
-        return u"{} is undefined.".format(rest)
+        return UNDEFINED_TEMPLATE.format(entry)
 
     timestamp = calendar.timegm(entry.datetime.utctimetuple())
 
