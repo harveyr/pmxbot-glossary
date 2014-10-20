@@ -3,8 +3,7 @@ import datetime
 import string
 import unittest
 
-from glossary import pmxbot
-import glossary
+from pmx_glossary import glossary
 
 
 class GlossaryTestCase(unittest.TestCase):
@@ -12,16 +11,20 @@ class GlossaryTestCase(unittest.TestCase):
 
     TEST_DEFINITIONS = {
         'blargh': 'this one thing I had',
-        'snargh': 'also a thing',
-        'salmon': 'a type of things',
-        'fish oil': 'what salmon sell',
         'building': 'where salmon hold meetings',
         'castle': 'where salmon have tea',
+        'fish Oil': 'what salmon sell',
+        'Salmon': 'a type of things',
+        'snargh': 'also a thing',
+        'snowman': u'\u2603',
     }
 
     TEST_NICK = 'tester_person'
 
     def setUp(self):
+        self.wipe_and_init_glossary()
+
+    def wipe_and_init_glossary(self):
         if os.path.exists(self.DB_FILE):
             os.remove(self.DB_FILE)
 
@@ -30,14 +33,14 @@ class GlossaryTestCase(unittest.TestCase):
         )
 
     def tearDown(self):
-        pmxbot.storage.SelectableStorage.finalize()
+        glossary.pmxbot.storage.SelectableStorage.finalize()
 
     def _load_test_definitions(self, definition_dict=None):
         definition_dict = definition_dict or self.TEST_DEFINITIONS
 
         for entry, definition in definition_dict.items():
             self._call_define(
-                '{}: {}'.format(entry, definition), nick=self.TEST_NICK
+                u'{}: {}'.format(entry, definition), nick=self.TEST_NICK
             )
 
     def _call_search(self, rest):
@@ -70,6 +73,40 @@ class GlossaryTestCase(unittest.TestCase):
             nick=nick,
             rest=rest
         )
+
+    def test_dump_and_load(self):
+        self._load_test_definitions()
+
+        dump_data, filepath = glossary.Glossary.store.dump_to_json()
+
+        dumped_entries = {r['entry'] for r in dump_data}
+        expected_entries = set(self.TEST_DEFINITIONS.keys())
+
+        self.assertEqual(dumped_entries, expected_entries)
+
+        loaded_entries, inserted = glossary.Glossary.store.load_from_json(
+            filepath
+        )
+
+        self.assertEqual(len(inserted), 0)
+        self.assertEqual(len(loaded_entries), len(expected_entries))
+
+        self.wipe_and_init_glossary()
+        glossary.Glossary.store.bust_all_entries_cache()
+
+        loaded_entries, inserted = glossary.Glossary.store.load_from_json(
+            filepath
+        )
+        self.assertEqual(len(inserted), len(expected_entries))
+
+        for entry in expected_entries:
+            records = glossary.Glossary.store.get_all_records_for_entry(entry)
+
+            self.assertEqual(1, len(records))
+
+            self.assertEqual(records[0].entry, entry)
+
+        os.remove(filepath)
 
     def test_add_and_retrieve_simple_definition(self):
         author = 'bojangles'
@@ -253,7 +290,7 @@ class GlossaryTestCase(unittest.TestCase):
             self.assertIn(entry, expected_entries)
 
             expected_definition = (
-                '{} [defined by {} just now in channel]'.format(
+                u'{} [defined by {} just now in channel]'.format(
                     self.TEST_DEFINITIONS[entry],
                     self.TEST_NICK
                 )

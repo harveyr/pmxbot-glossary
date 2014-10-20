@@ -43,7 +43,7 @@ Maintaining definitions of domain lingo via a chat bot is the
 best way to keep those definitions up to date and readily accessible
 (assuming the group uses some form of internet chat).
 
-I believe this may be the case because:
+This may be the case because:
 
 * It allows painless updating of the definitions (no pull requests, etc.).
 * It allows painless retrieval of the definitions.
@@ -52,7 +52,7 @@ I believe this may be the case because:
 * It enables somewhat automatic review of definitions as they are added
   or retrieved.
 * It creates "accidental" education: you'll learn stuff just sitting in a
-  channel and watching the definitions scroll by.
-* Along those lines, it keeps the definitions in front of the eyes of the
+  channel and seeing the definitions scroll by.
+* It keeps the definitions in front of the eyes of the
   domain experts, maximizing the chances they will spot an obsolete,
   misguided, or missing entry.

@@ -3,9 +3,8 @@ import datetime
 import json
 import random
 import string
+import tempfile
 from collections import namedtuple
-
-from dateutil.parser import parse as parse_date
 
 import pmxbot
 from pmxbot import storage
@@ -70,6 +69,7 @@ class Glossary(storage.SelectableStorage):
 
         if not path:
             print('- No fixtures path provided.')
+            return
 
         try:
             with open(path) as f:
@@ -116,24 +116,143 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
     cache = {}
 
+    @staticmethod
+    def date_str_to_datetime(date_str):
+        """
+        Helper function to turn a queried date string into a datetime object.
+
+        Simple, but used in multiple places.
+        """
+        return datetime.datetime.utcfromtimestamp(int(date_str))
+
     def init_tables(self):
         self.db.execute(self.CREATE_GLOSSARY_SQL)
         self.db.execute(self.CREATE_GLOSSARY_INDEX_SQL)
         self.db.commit()
 
+    def dump_to_json(self):
+        """
+        Dumps all entry data to a temporary file.
+        """
+        dump_data = []
+
+        outfile = tempfile.NamedTemporaryFile(
+            mode='w',
+            prefix='pmxbot-glossary_dump',
+            suffix='.json',
+            delete=False
+        )
+
+        sql = """
+          SELECT entry,
+            entry_lower,
+            definition,
+            author,
+            channel,
+            strftime('%s', timestamp)
+          FROM Glossary
+          ORDER BY entry_lower
+        """
+
+        for row in self.db.execute(sql):
+            dump_data.append({
+                'entry': row[0],
+                'entry_lower': row[1],
+                'definition': row[2],
+                'author': row[3],
+                'channel': row[4],
+                'timestamp': row[5]
+            })
+
+        json.dump(dump_data, outfile, indent=2)
+
+        outfile.close()
+
+        return dump_data, outfile.name
+
+    def load_from_json(self, filepath):
+        """
+        Load entries from json data in filepath (str).
+
+        The file should contain data dumped by ``dump_to_json``. If you're
+        trying to create fixtures, use a fixtures file handled by
+        ``initialize``.
+        """
+        records_by_entry_lower = {}
+
+        inserted = []
+
+        with open(filepath, 'r') as f:
+            all_entries = json.load(f)
+
+            for entry_data in all_entries:
+                entry = entry_data['entry']
+                entry_lower = entry_data['entry_lower']
+                definition = entry_data['definition']
+                timestamp = entry_data['timestamp']
+                datetime_ = self.date_str_to_datetime(timestamp)
+
+                if not entry_lower in records_by_entry_lower:
+                    records_by_entry_lower[entry_lower] = (
+                        self.get_all_records_for_entry(entry_lower)
+                    )
+
+                existing_records = records_by_entry_lower[entry_lower]
+
+                already_exists = False
+
+                for existing in existing_records:
+                    if all([
+                        existing.entry == entry,
+                        existing.definition == definition,
+                        existing.datetime == datetime_
+                    ]):
+                        already_exists = True
+                        break
+
+                if not already_exists:
+                    self.add_entry(
+                        entry,
+                        definition,
+                        entry_data['author'],
+                        entry_data['channel'],
+                        datetime_
+                    )
+
+                    inserted.append(entry_data)
+
+            return all_entries, inserted
+
     def bust_all_entries_cache(self):
         if self.ALL_ENTRIES_CACHE_KEY in self.cache:
             del self.cache[self.ALL_ENTRIES_CACHE_KEY]
 
-    def add_entry(self, entry, definition, author, channel=None):
-        sql = """
-          INSERT INTO glossary (entry, entry_lower, definition, author, channel)
-          VALUES (?, ?, ?, ?, ?)
-        """
+    def add_entry(
+        self,
+        entry,
+        definition,
+        author,
+        channel=None,
+        timestamp=None
+    ):
+        if timestamp:
+            sql = """
+              INSERT INTO glossary
+                (entry, entry_lower, definition, author, channel, timestamp)
+              VALUES (?, ?, ?, ?, ?, ?)
+            """
+            values = (
+                entry, entry.lower(), definition, author, channel, timestamp
+            )
+        else:
+            sql = """
+              INSERT INTO glossary
+                (entry, entry_lower, definition, author, channel)
+              VALUES (?, ?, ?, ?, ?)
+            """
+            values = (entry, entry.lower(), definition, author, channel)
 
-        self.db.execute(
-            sql, (entry, entry.lower(), definition, author, channel)
-        )
+        self.db.execute(sql, values)
         self.db.commit()
         self.bust_all_entries_cache()
 
@@ -141,7 +260,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
     def get_all_records(self):
         """
-        Returns list of all entries in the glossary.
+        Returns list of all the latest entries in the glossary.
         """
         cache_key = 'all_entries'
         entries = self.cache.get(cache_key)
@@ -247,7 +366,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
                     row[2],
                     row[3],
                     row[4],
-                    datetime.datetime.utcfromtimestamp(int(row[5])),
+                    self.date_str_to_datetime(row[5]),
                     i,
                     total_count
                 )
@@ -553,9 +672,8 @@ def search(entry, num=None):
 
 @command(ARCHIVES_LINK_COMMAND, doc=DOCS_STR)
 @entry_number_command
-def archives_link(rest, num=None):
-
-    slack_url = pmxbot.config.get('slack_url')
+def archives_link(rest, num=None, url_base=None):
+    slack_url = url_base or pmxbot.config.get('slack_url')
 
     if not slack_url:
         return 'Slack URL is not configured.'

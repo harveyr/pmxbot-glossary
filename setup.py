@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 from setuptools import setup, find_packages
 
-import glossary
+import pmx_glossary
 
 setup(
     name='pmxbot-glossary',
-    version=glossary.__version__,
+    version=pmx_glossary.__version__,
     description='A pmxbot glossary extension.',
     author='Harvey Rogers',
     author_email='harveyr@gmail.com ',
@@ -15,10 +15,14 @@ setup(
     install_requires=[
         'pmxbot',
         'python-dateutil',
+        'click',
     ],
     entry_points=dict(
+        console_scripts=[
+            'pmxglos = pmx_glossary.cli:cli'
+        ],
         pmxbot_handlers=[
-            'Glossary = glossary.glossary:Glossary.initialize',
+            'Glossary = pmx_glossary.glossary:Glossary.initialize',
         ]
     ),
 )
