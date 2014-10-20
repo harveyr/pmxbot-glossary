@@ -33,7 +33,7 @@ ADD_DEFINITION_RESULT_TEMPLATE = u'Okay! "{entry}" is now "{definition}"'
 
 QUERY_RESULT_TEMPLATE = (
     u'{entry} ({num}/{total}): {definition} '
-    u'[defined by {author} {age}{channel_str}]'
+    u'[defined by {author} {age}]'
 )
 
 UNDEFINED_TEMPLATE = u'"{}" is undefined.'
@@ -520,19 +520,13 @@ def handle_nth_definition(entry, num=None):
         )
 
     if query_result:
-        if query_result.channel:
-            channel_str = ' in ' + query_result.channel
-        else:
-            channel_str = ''
-
         return QUERY_RESULT_TEMPLATE.format(
             entry=query_result.entry,
             num=query_result.index + 1,
             total=query_result.total_count,
             definition=query_result.definition,
             author=query_result.author,
-            age=datetime_to_age_str(query_result.datetime),
-            channel_str=channel_str
+            age=datetime_to_age_str(query_result.datetime)
         )
 
     response = UNDEFINED_TEMPLATE.format(entry)

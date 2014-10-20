@@ -131,8 +131,7 @@ class GlossaryTestCase(unittest.TestCase):
             total=1,
             definition=definition,
             author=author,
-            age=glossary.datetime_to_age_str(datetime.datetime.utcnow()),
-            channel_str=' in channel'
+            age=glossary.datetime_to_age_str(datetime.datetime.utcnow())
         )
 
         result = self._call_whatis(entry)
@@ -291,7 +290,7 @@ class GlossaryTestCase(unittest.TestCase):
             self.assertIn(entry, expected_entries)
 
             expected_definition = (
-                u'{} [defined by {} just now in channel]'.format(
+                u'{} [defined by {} just now]'.format(
                     self.TEST_DEFINITIONS[entry],
                     self.TEST_NICK
                 )
