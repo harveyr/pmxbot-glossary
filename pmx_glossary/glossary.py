@@ -38,6 +38,8 @@ QUERY_RESULT_TEMPLATE = (
 
 UNDEFINED_TEMPLATE = u'"{}" is undefined.'
 
+INVALID_ENTRY_CHARS = [c for c in string.punctuation if c not in ['_', '-']]
+
 
 class Glossary(storage.SelectableStorage):
     """
@@ -617,10 +619,10 @@ def define(client, event, channel, nick, rest):
 
     entry = parts[0].strip()
 
-    invalid_char = next((c for c in entry if c in string.punctuation), None)
+    invalid_char = next((c for c in entry if c in INVALID_ENTRY_CHARS), None)
 
     if invalid_char:
-        return 'Punctation ("{}") cannot be used in a glossary entry.'.format(
+        return '"{}" cannot be used in a glossary entry.'.format(
             invalid_char
         )
 

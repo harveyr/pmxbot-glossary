@@ -336,7 +336,7 @@ class GlossaryTestCase(unittest.TestCase):
         self.assertEqual(result, set(entry_dict.keys()))
 
     def test_punctuation_error_response(self):
-        for punct_char in string.punctuation:
+        for punct_char in glossary.INVALID_ENTRY_CHARS:
             entry = 'entry' + punct_char
             definition = 'a super disallowed entry'
 
@@ -350,7 +350,7 @@ class GlossaryTestCase(unittest.TestCase):
                 self.assertEqual(expected, result)
             else:
                 expected = (
-                    'Punctation ("{}") cannot be used in a glossary entry.'
+                    '"{}" cannot be used in a glossary entry.'
                 ).format(punct_char)
 
                 self.assertEqual(result, expected)
