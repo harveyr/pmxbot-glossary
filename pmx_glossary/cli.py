@@ -38,3 +38,9 @@ def jsonload(path):
         )
 
     print
+
+
+@cli.command()
+@click.argument('path', type=click.Path(exists=True))
+def load_fixtures(path):
+    Glossary.load_fixtures(path)
