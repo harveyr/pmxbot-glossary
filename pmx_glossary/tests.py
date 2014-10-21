@@ -79,7 +79,7 @@ class GlossaryTestCase(unittest.TestCase):
     def _call_whatis(self, rest, nick=None):
         nick = nick or self.TEST_NICK
 
-        return glossary.query(
+        return glossary.query_command(
             client='client',
             event='event',
             channel='channel',
@@ -90,7 +90,7 @@ class GlossaryTestCase(unittest.TestCase):
     def _call_redirect(self, rest, nick=None):
         nick = nick or self.TEST_NICK
 
-        return glossary.redirect(
+        return glossary.redirect_command(
             client='client',
             event='event',
             channel='channel',
@@ -100,6 +100,9 @@ class GlossaryTestCase(unittest.TestCase):
 
     def _call_unredirect(self, rest, nick=None):
         return self._call_command(glossary.remove_redirect, rest, nick)
+
+    def _call_whowrote(self, rest, nick=None):
+        return self._call_command(glossary.who_wrote, rest, nick)
 
     def test_dump_and_load(self):
         self._load_test_definitions()
@@ -171,16 +174,23 @@ class GlossaryTestCase(unittest.TestCase):
             )
         )
 
-        expected = glossary.QUERY_RESULT_TEMPLATE.format(
-            entry=entry,
-            num=1,
-            total=1,
-            definition=definition,
-            author=author,
-            age=glossary.datetime_to_age_str(datetime.datetime.utcnow())
-        )
-
         result = self._call_whatis(entry)
+        expected = 'fish (1/1): a swimmy thingy [just now]'
+
+        self.assertEqual(result, expected)
+
+    def test_suggestions_on_query_miss(self):
+        self._load_test_definitions({
+            'shindig': 'a thing',
+            'shining': 'shiny thing',
+            'flabbergasted': 'wat!',
+            'ning-ning-ning': 'no idea',
+        })
+
+        expected = (
+            '"shin" is undefined. May I interest you in shindig or shining?'
+        )
+        result = self._call_whatis('shin')
 
         self.assertEqual(result, expected)
 
@@ -276,48 +286,21 @@ class GlossaryTestCase(unittest.TestCase):
                 result
             )
 
-        expected_total = len(definitions)
-        expected_age = glossary.datetime_to_age_str(datetime.datetime.utcnow())
-
         expected_zero = '"fish" has 3 records. Valid record numbers are 1-3.'
         self.assertEqual(self._call_whatis('fish: 0'), expected_zero)
 
         # Fetch the first definition
-        expected_1 = glossary.QUERY_RESULT_TEMPLATE.format(
-            entry=entry,
-            num=1,
-            total=expected_total,
-            definition=definitions[0],
-            author=author,
-            age=expected_age,
-            channel_str=' in channel'
-        )
+        expected_1 = "fish (1/3): a swimmy thingy [just now]"
         result = self._call_whatis('fish: 1')
         self.assertEqual(result, expected_1)
 
         # Fetch the second definition
-        expected_2 = glossary.QUERY_RESULT_TEMPLATE.format(
-            entry=entry,
-            num=2,
-            total=expected_total,
-            definition=definitions[1],
-            author=author,
-            age=expected_age,
-            channel_str=' in channel'
-        )
+        expected_2 = "fish (2/3): a swimmy slimy thingy [just now]"
         result = self._call_whatis('fish: 2')
         self.assertEqual(result, expected_2)
 
         # Fetch the third definition
-        expected_3 = glossary.QUERY_RESULT_TEMPLATE.format(
-            entry=entry,
-            num=expected_total,
-            total=expected_total,
-            definition=definitions[2],
-            author=author,
-            age=expected_age,
-            channel_str=' in channel'
-        )
+        expected_3 = "fish (3/3): dinner [just now]"
         result = self._call_whatis('fish: 3')
         self.assertEqual(result, expected_3)
 
@@ -338,10 +321,7 @@ class GlossaryTestCase(unittest.TestCase):
             self.assertIn(entry, expected_entries)
 
             expected_definition = (
-                u'{} [{} - just now]'.format(
-                    self.TEST_DEFINITIONS[entry],
-                    self.TEST_NICK
-                )
+                u'{} [just now]'.format(self.TEST_DEFINITIONS[entry])
             )
             self.assertEqual(definition, expected_definition)
 
@@ -453,15 +433,17 @@ class GlossaryTestCase(unittest.TestCase):
         self.assertEqual(redirect.entry, 'cool Dude')
 
         result = self._call_whatis('bad dude')
-        expected = glossary.REDIRECT_RESULT_TEMPLATE.format(
-            entry='bad dude',
-            redirect='cool Dude',
+        expected = glossary.QUERY_RESULT_TEMPLATE.format(
+            entry='cool Dude',
             num=1,
             total=1,
             definition='one cool summagun',
-            author=self.TEST_NICK,
             age='just now'
         )
+
+        # Capitalization of bad dude should reflect what user passed in,
+        # not what's stored in entry.
+        expected = 'bad dude redirects to ' + expected
 
         self.assertEqual(result, expected)
 
@@ -476,6 +458,10 @@ class GlossaryTestCase(unittest.TestCase):
             self.assertEqual(
                 self.store.get_redirect('thingy').entry, 'tom tom tom'
             )
+
+    def test_redirect_to_undefined(self):
+        result = self._call_redirect('ting: thing')
+        self.assertEqual(result, '"thing" is not defined')
 
     def test_circular_redirect(self):
         self._load_test_definitions({
@@ -516,6 +502,32 @@ class GlossaryTestCase(unittest.TestCase):
                 age='just now'
             )
         )
+
+    def test_who_wrote(self):
+        nick1 = 'happyfeller'
+        nick2 = 'happyfeller_blues'
+        self._call_define('thing: a thing, you know?', nick=nick1)
+        self._call_define('thing: thing thing thing', nick=nick2)
+
+        expected = nick2 + ' authored the 2nd definition of thing.'
+        result = self._call_whowrote('thing')
+        self.assertEqual(result, expected)
+
+        expected_1 = nick1 + ' authored the 1st definition of thing.'
+        result_1 = self._call_whowrote('thing: 1')
+        self.assertEqual(result_1, expected_1)
+
+    def test_who_wrote_with_redirect(self):
+        nick = 'happyfeller'
+        self._call_define('thing: a thing, you know?', nick=nick)
+        self._call_redirect('ting: thing', nick=nick)
+
+        expected = (
+            'ting redirects to thing. {} authored the 1st definition of thing.'
+        ).format(nick)
+        result = self._call_whowrote('ting')
+
+        self.assertEqual(result, expected)
 
 
 class ReadableJoinTestCase(unittest.TestCase):

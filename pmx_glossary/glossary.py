@@ -13,6 +13,7 @@ from pmxbot.core import command
 DEFINE_COMMAND = 'set'
 QUERY_COMMAND = 'whatis'
 SEARCH_COMMAND = 'search'
+WHOWROTE_COMMAND = 'whowrote'
 REDIRECT_COMMAND = 'redirect'
 REMOVE_REDIRECT_COMMAND = 'unredirect'
 ARCHIVES_LINK_COMMAND = 'tardis'
@@ -21,6 +22,8 @@ HELP_DEFINE_STR = '!{} <entry>: <definition>'.format(DEFINE_COMMAND)
 HELP_QUERY_STR = '!{} <entry> [: num]'.format(QUERY_COMMAND)
 HELP_SEARCH_STR = '!{} <search terms>'.format(SEARCH_COMMAND)
 HELP_REDIRECT_STR = '!{} <redirect from>:<redirect to>'.format(REDIRECT_COMMAND)
+HELP_REMOVE_REDIRECT_STR = '!{} <entry>'.format(REMOVE_REDIRECT_COMMAND)
+HELP_WHOWROTE_STR = '!{} <entry> [: num]'.format(WHOWROTE_COMMAND)
 
 # TODO: Clean all of this up.
 DOCS_STR = (
@@ -40,12 +43,7 @@ ADD_DEFINITION_RESULT_TEMPLATE = (
 )
 
 QUERY_RESULT_TEMPLATE = (
-    u'{entry} ({num}/{total}): {definition} [{author} - {age}]'
-)
-
-REDIRECT_RESULT_TEMPLATE = (
-    u'{entry} redirects to {redirect} ({num}/{total}): '
-    u'{definition} [{author} - {age}]'
+    u'{entry} ({num}/{total}): {definition} [{age}]'
 )
 
 UNDEFINED_TEMPLATE = u'"{}" is undefined.'
@@ -59,6 +57,30 @@ class InvalidEntryError(Exception):
 
 class InvalidRedirectError(Exception):
     pass
+
+
+class InvalidEntryNumberError(Exception):
+    """
+    Raised when user requests a numbered entry that does not exist.
+    """
+    def __init__(self, entry, entries, redirect=None):
+        count = len(entries)
+        valid_records_str = 'Valid record numbers are 1-{}.'.format(count)
+
+        if redirect:
+            message = (
+                u'"{}" redirects to "{}," which has {} records. {}'.format(
+                    entry, redirect.entry, count, valid_records_str
+                )
+            )
+        else:
+            message = (
+                u'"{}" has {} records. {}'.format(
+                    entry, count, valid_records_str
+                )
+            )
+
+        super(InvalidEntryNumberError, self).__init__(message)
 
 
 class Glossary(storage.SelectableStorage):
@@ -299,6 +321,11 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         redirect_from = redirect_from.lower()
         redirect_to = redirect_to.lower()
 
+        if not self.get_latest_record(redirect_to):
+            raise InvalidRedirectError(
+                u'"{}" is not defined'.format(redirect_to)
+            )
+
         existing = self.get_redirect(redirect_to)
 
         if existing:
@@ -343,7 +370,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         row = self.db.execute(sql, (entry.lower(), )).fetchone()
 
         if row:
-            return self.get_entry_data(row[0])
+            return self.get_latest_record(row[0])
 
         return None
 
@@ -385,7 +412,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         self.db.commit()
         self.bust_all_entries_cache()
 
-        return self.get_entry_data(entry)
+        return self.get_latest_record(entry)
 
     def get_all_records(self):
         """
@@ -443,13 +470,35 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
         return random.choice(entries).entry
 
-    def get_entry_data(self, entry, num=None):
+    def get_latest_record(self, entry):
         """
         Returns GlossaryQueryResult for an entry in the glossary.
-
-        If ``num`` is provided, returns the object for that version of the
-        definition in history.
         """
+        records = self.get_all_records_for_entry(entry)
+
+        if not records:
+            return None
+
+        return records[-1]
+
+    def get_nth_record(self, entry, num, follow_redirect=True):
+        """
+        Returns GlossaryQueryResult for nth entry in the glossary.
+        """
+        redirect = Glossary.store.get_redirect(entry)
+        target_entry = redirect.entry if redirect else entry
+
+        try:
+            query_result = Glossary.store.get_entry_data(target_entry, num)
+        except IndexError:
+            entries = Glossary.store.get_all_records_for_entry(target_entry)
+
+            if not entries:
+                return UNDEFINED_TEMPLATE.format(entry)
+
+            raise InvalidEntryNumberError(entry, entries, redirect)
+
+
         # Entry numbering starts at 1
         if num is not None and num < 1:
             raise IndexError
@@ -533,6 +582,110 @@ GlossaryRecord = namedtuple(
     'GlossaryQueryResult',
     'entry entry_lower definition author channel datetime index total_count'
 )
+
+
+class QueryHandler(object):
+    RESPONSE_TEMPLATE = (
+        u'{entry} ({num}/{total}): {definition} [{age}]'
+    )
+
+    def __init__(self, entry, num=None):
+        self.entry = entry
+        self.num = num
+        self.redirect = Glossary.store.get_redirect(entry)
+
+        if self.redirect:
+            self.target_entry = self.redirect.entry
+        else:
+            self.target_entry = self.entry
+
+        self.records = Glossary.store.get_all_records_for_entry(
+            self.target_entry
+        )
+
+        self.success = bool(self.records) and self.num_is_valid
+
+    def response(self):
+        if not self.success:
+            return self.error_response()
+
+        target_record = self.target_record
+
+        response = self.RESPONSE_TEMPLATE.format(
+            entry=target_record.entry,
+            num=target_record.index + 1,
+            total=target_record.total_count,
+            definition=target_record.definition,
+            age=datetime_to_age_str(target_record.datetime)
+        )
+
+        if self.redirect:
+            response = u'{} redirects to {}'.format(self.entry, response)
+
+        return response
+
+    def error_response(self):
+        if self.success:
+            return None
+
+        message = None
+
+        if not self.records:
+            message = u'"{}" is undefined'.format(self.entry)
+            # Check if there are any similar entries that may be relevant.
+            suggestions = list(get_alternative_suggestions(self.entry))[:10]
+
+            if suggestions:
+                message += (
+                    u'. May I interest you in {}?'.format(readable_join(suggestions))
+                )
+
+        elif not self.num_is_valid:
+            message = unicode(
+                InvalidEntryNumberError(
+                    self.entry, self.records, self.redirect
+                )
+            )
+
+        return message or 'Something strange happened.'
+
+    @property
+    def target_record(self):
+        if self.num:
+            if not self.num_is_valid:
+                raise InvalidEntryNumberError(
+                    self.entry, self.records, self.redirect
+                )
+
+            return self.records[self.num - 1]
+
+        return self.records[-1]
+
+    @property
+    def num_is_valid(self):
+        if self.num is None:
+            return True
+
+        return 1 <= self.num <= len(self.records)
+
+
+class WhoWroteHandler(QueryHandler):
+    def response(self):
+        if not self.success:
+            return self.error_response()
+
+        response = u'{} authored the {} definition of {}.'.format(
+            self.target_record.author,
+            nth_str(self.target_record.index + 1),
+            self.target_record.entry
+        )
+
+        if self.redirect:
+            response = u'{} redirects to {}. {}'.format(
+                self.entry, self.target_record.entry, response
+            )
+
+        return response
 
 
 def datetime_to_age_str(dt):
@@ -620,20 +773,6 @@ def get_alternative_suggestions(entry):
     return results
 
 
-def handle_random_query():
-    """
-    Returns a formatted result string for a random entry.
-
-    Uses the latest definition of the entry.
-    """
-    entry = Glossary.store.get_random_entry()
-
-    if not entry:
-        return "I can't find a single definition. " + DOCS_STR
-
-    return handle_nth_definition(entry)
-
-
 def handle_nth_definition(entry, num=None):
     """
     Returns a formatted result string for an entry.
@@ -641,8 +780,8 @@ def handle_nth_definition(entry, num=None):
     If ``num`` is passed, it will return the corresponding numbered, historical
     definition for the entry.
     """
-    redirect_data = Glossary.store.get_redirect(entry)
-    target_entry = redirect_data.entry if redirect_data else entry
+    redirect = Glossary.store.get_redirect(entry)
+    target_entry = redirect.entry if redirect else entry
 
     try:
         query_result = Glossary.store.get_entry_data(target_entry, num)
@@ -652,22 +791,7 @@ def handle_nth_definition(entry, num=None):
         if not entries:
             return UNDEFINED_TEMPLATE.format(entry)
 
-        count = len(entries)
-
-        valid_records_str = 'Valid record numbers are 1-{}.'.format(count)
-
-        if redirect_data:
-            return (
-                u'"{}" redirects to "{}," which has {} records. {}'.format(
-                    entry, target_entry, count, valid_records_str
-                )
-            )
-
-        return (
-            u'"{}" has {} records. {}'.format(
-                entry, count, valid_records_str
-            )
-        )
+        raise InvalidEntryNumberError(entry, entries, redirect)
 
     if query_result:
         kwargs = dict(
@@ -675,17 +799,15 @@ def handle_nth_definition(entry, num=None):
             num=query_result.index + 1,
             total=query_result.total_count,
             definition=query_result.definition,
-            author=query_result.author,
             age=datetime_to_age_str(query_result.datetime),
         )
 
-        if redirect_data:
-            kwargs['entry'] = entry
-            kwargs['redirect'] = query_result.entry
+        response = QUERY_RESULT_TEMPLATE.format(**kwargs)
 
-            return REDIRECT_RESULT_TEMPLATE.format(**kwargs)
+        if redirect:
+            response = u'{} redirects to {}'.format(entry, response)
 
-        return QUERY_RESULT_TEMPLATE.format(**kwargs)
+        return response
 
     response = UNDEFINED_TEMPLATE.format(entry)
 
@@ -700,56 +822,43 @@ def handle_nth_definition(entry, num=None):
     return response
 
 
-def handle_search(rest):
-    """
-    Returns formatted list of entries found with the given search string.
-    """
-    entry_matches = set(Glossary.store.get_similar_words(rest))
-    lower_matches = {e.lower() for e in entry_matches}
-
-    def_matches = set(
-        e for e in Glossary.store.search_definitions(rest)
-        if e.lower() not in lower_matches
-    )
-
-    matches = sorted(list(entry_matches | def_matches))
-
-    if not matches:
-        return 'No glossary results found.'
-    else:
-        result = (
-            u'Found glossary entries: {}. To get a definition: `!{} <entry>`'
-        ).format(readable_join(matches, conjunction='and'), QUERY_COMMAND)
-
-        return result
-
-
-def entry_number_command(func):
+def entry_number_command(accepts_num, docs, require_entry=False):
     """
     Decorator for commands that care about an entry string and possibly an
     entry number.
     """
-    def inner(client, event, channel, nick, rest):
-        rest = rest.strip()
-        num = None
+    def func_wrapper(func):
+        def inner(client, event, channel, nick, rest):
+            rest = rest.strip()
+            num = None
 
-        if rest.lower() == 'help':
-            return DOCS_STR
+            if rest.lower() == 'help':
+                return docs
 
-        if ':' in rest:
-            parts = rest.split(':', 1)
-            entry, num = parts[0].strip(), parts[1].strip()
+            if ':' in rest:
+                if not accepts_num:
+                    return docs
 
-            try:
-                num = int(num)
-            except (ValueError, TypeError):
-                return OOPS_GENERIC
-        else:
-            entry = rest
+                parts = rest.split(':', 1)
+                entry, num = parts[0].strip(), parts[1].strip()
 
-        return func(entry, num)
+                try:
+                    num = int(num)
+                except (ValueError, TypeError):
+                    return docs
+            else:
+                entry = rest
 
-    return inner
+            if require_entry and not entry:
+                return docs
+
+            if accepts_num:
+                return func(entry, num)
+
+            return func(entry)
+
+        return inner
+    return func_wrapper
 
 
 def nth_str(num):
@@ -796,7 +905,7 @@ def define(client, event, channel, nick, rest):
 
     definition = parts[1].strip()
 
-    existing = Glossary.store.get_entry_data(entry)
+    existing = Glossary.store.get_latest_record(entry)
 
     if existing and existing.definition == definition:
         return "That's already the current definition."
@@ -814,19 +923,20 @@ def define(client, event, channel, nick, rest):
 
 
 @command(QUERY_COMMAND, doc=DOCS_STR)
-@entry_number_command
-def query(entry, num):
+@entry_number_command(accepts_num=True, docs=HELP_QUERY_STR)
+def query_command(entry, num):
     """
     Retrieve a definition of an entry.
     """
     if not entry:
-        return handle_random_query()
+        entry = Glossary.store.get_random_entry()
+        num = None
 
-    return handle_nth_definition(entry, num)
+    return QueryHandler(entry, num).response()
 
 
 @command(REDIRECT_COMMAND)
-def redirect(client, event, channel, nick, rest):
+def redirect_command(client, event, channel, nick, rest):
     """
     Redirect one entry to another.
     """
@@ -849,14 +959,13 @@ def redirect(client, event, channel, nick, rest):
 
 
 @command(REMOVE_REDIRECT_COMMAND)
-@entry_number_command
-def remove_redirect(entry, num=None):
+@entry_number_command(
+    accepts_num=False, require_entry=True, docs=HELP_REMOVE_REDIRECT_STR
+)
+def remove_redirect(entry):
     """
     Remove a redirect.
     """
-    if num:
-        return OOPS_REDIRECT
-
     existing = Glossary.store.get_redirect(entry)
 
     if not existing:
@@ -870,26 +979,54 @@ def remove_redirect(entry, num=None):
 
 
 @command(SEARCH_COMMAND, doc=DOCS_STR)
-@entry_number_command
-def search(entry, num=None):
+@entry_number_command(
+    accepts_num=False, require_entry=True, docs=HELP_SEARCH_STR
+)
+def search(entry):
     """
     Search the entries and defintions.
     """
-    if not entry or num:
-        return OOPS_SEARCH
+    entry_matches = set(Glossary.store.get_similar_words(entry))
+    lower_matches = {e.lower() for e in entry_matches}
 
-    return handle_search(entry)
+    def_matches = set(
+        e for e in Glossary.store.search_definitions(entry)
+        if e.lower() not in lower_matches
+    )
+
+    matches = sorted(list(entry_matches | def_matches))
+
+    if not matches:
+        return 'No glossary results found.'
+    else:
+        result = (
+            u'Found glossary entries: {}. To get a definition: `!{} <entry>`'
+        ).format(readable_join(matches, conjunction='and'), QUERY_COMMAND)
+
+        return result
 
 
-@command(ARCHIVES_LINK_COMMAND, doc=DOCS_STR)
-@entry_number_command
+@command(WHOWROTE_COMMAND, doc=HELP_WHOWROTE_STR)
+@entry_number_command(
+    accepts_num=True, require_entry=True, docs=HELP_WHOWROTE_STR
+)
+def who_wrote(entry, num=None):
+    """
+    Search the entries and defintions.
+    """
+    return WhoWroteHandler(entry, num).response()
+
+
 def archives_link(rest, num=None, url_base=None):
+    """
+    Coming soon.
+    """
     slack_url = url_base or pmxbot.config.get('slack_url')
 
     if not slack_url:
         return 'Slack URL is not configured.'
 
-    entry = Glossary.store.get_entry_data(rest, num)
+    entry = Glossary.store.get(rest, num)
 
     if not entry:
         return UNDEFINED_TEMPLATE.format(entry)
