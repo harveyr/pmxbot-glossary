@@ -16,7 +16,7 @@ SEARCH_COMMAND = 'search'
 ARCHIVES_LINK_COMMAND = 'tardis'
 
 HELP_DEFINE_STR = '!{} <entry>: <definition>'.format(DEFINE_COMMAND)
-HELP_QUERY_STR = '!{} <entry> [<num>]'.format(QUERY_COMMAND)
+HELP_QUERY_STR = '!{} <entry> [: num]'.format(QUERY_COMMAND)
 HELP_SEARCH_STR = '!{} <search terms>'.format(SEARCH_COMMAND)
 
 DOCS_STR = (
@@ -29,11 +29,13 @@ DOCS_STR = (
 
 OOPS_STR = "I didn't understand that. " + DOCS_STR
 
-ADD_DEFINITION_RESULT_TEMPLATE = u'Okay! "{entry}" is now "{definition}"'
+ADD_DEFINITION_RESULT_TEMPLATE = (
+    u'Okay! "{entry}" is now "{definition}". '
+    u'This is the {nth} time it has been defined.'
+)
 
 QUERY_RESULT_TEMPLATE = (
-    u'{entry} ({num}/{total}): {definition} '
-    u'[defined by {author} {age}]'
+    u'{entry} ({num}/{total}): {definition} [{author} - {age}]'
 )
 
 UNDEFINED_TEMPLATE = u'"{}" is undefined.'
@@ -517,8 +519,17 @@ def handle_nth_definition(entry, num=None):
     try:
         query_result = Glossary.store.get_entry_data(entry, num)
     except IndexError:
-        return u'"{}" is not a valid glossary entry number for "{}".'.format(
-            num, entry
+        entries = Glossary.store.get_all_records_for_entry(entry)
+
+        if not entries:
+            return UNDEFINED_TEMPLATE.format(entry)
+
+        count = len(entries)
+
+        return (
+            u'"{}" has {} records. Valid record numbers are 1-{}.'.format(
+                entry, count, count
+            )
         )
 
     if query_result:
@@ -596,6 +607,18 @@ def entry_number_command(func):
     return inner
 
 
+def nth_str(num):
+    num = int(num)
+
+    nth_map = {
+        1: '1st',
+        2: '2nd',
+        3: '3rd',
+    }
+
+    return nth_map.get(num, '{}th'.format(num))
+
+
 @command(DEFINE_COMMAND, doc=DOCS_STR)
 def define(client, event, channel, nick, rest):
     """
@@ -637,7 +660,8 @@ def define(client, event, channel, nick, rest):
 
     return ADD_DEFINITION_RESULT_TEMPLATE.format(
         entry=result.entry,
-        definition=result.definition
+        definition=result.definition,
+        nth=nth_str(result.total_count)
     )
 
 

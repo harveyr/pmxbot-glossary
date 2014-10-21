@@ -121,7 +121,8 @@ class GlossaryTestCase(unittest.TestCase):
             add_result,
             glossary.ADD_DEFINITION_RESULT_TEMPLATE.format(
                 entry=entry,
-                definition=definition
+                definition=definition,
+                nth=glossary.nth_str(1)
             )
         )
 
@@ -218,20 +219,22 @@ class GlossaryTestCase(unittest.TestCase):
             'dinner'
         )
 
-        self._call_define(
-            '{}: {}'.format(entry, definitions[0]), nick=author
-        )
-        self._call_define(
-            '{}: {}'.format(entry, definitions[1]), nick=author
-        )
-        self._call_define(
-            '{}: {}'.format(entry, definitions[2]), nick=author
-        )
+        for i, definition in enumerate(definitions):
+            result = self._call_define(
+                '{}: {}'.format(entry, definition), nick=author
+            )
+
+            self.assertIn(
+                'This is the {} time it has been defined'.format(
+                    glossary.nth_str(i + 1)
+                ),
+                result
+            )
 
         expected_total = len(definitions)
         expected_age = glossary.datetime_to_age_str(datetime.datetime.utcnow())
 
-        expected_zero = '"0" is not a valid glossary entry number for "fish".'
+        expected_zero = '"fish" has 3 records. Valid record numbers are 1-3.'
         self.assertEqual(self._call_whatis('fish: 0'), expected_zero)
 
         # Fetch the first definition
@@ -290,7 +293,7 @@ class GlossaryTestCase(unittest.TestCase):
             self.assertIn(entry, expected_entries)
 
             expected_definition = (
-                u'{} [defined by {} just now]'.format(
+                u'{} [{} - just now]'.format(
                     self.TEST_DEFINITIONS[entry],
                     self.TEST_NICK
                 )
@@ -479,3 +482,13 @@ class AgeStringTestCase(unittest.TestCase):
     def test_450_days_ago(self):
         dt = self.now - datetime.timedelta(days=450)
         self.assertEqual('1.2 years ago', glossary.datetime_to_age_str(dt))
+
+
+class NthStringTestCase(unittest.TestCase):
+    def test_nth_string(self):
+        self.assertEqual(glossary.nth_str(1), '1st')
+        self.assertEqual(glossary.nth_str(2), '2nd')
+        self.assertEqual(glossary.nth_str(3), '3rd')
+        self.assertEqual(glossary.nth_str(4), '4th')
+        self.assertEqual(glossary.nth_str(5), '5th')
+        self.assertEqual(glossary.nth_str(1000), '1000th')
