@@ -41,6 +41,10 @@ and so on.
 
 `unredirect burger`
 
+**Find out who wrote something**
+
+`!whowrote hamburger`
+
  
 ## Why?
 
