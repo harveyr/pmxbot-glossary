@@ -573,7 +573,7 @@ def handle_search(rest):
         return 'No glossary results found.'
     else:
         result = (
-            u'Found glossary entries: {}. To get a definition: !{} <entry>'
+            u'Found glossary entries: {}. To get a definition: `!{} <entry>`'
         ).format(readable_join(matches, conjunction='and'), QUERY_COMMAND)
 
         return result
