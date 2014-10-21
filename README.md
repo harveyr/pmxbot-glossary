@@ -4,9 +4,7 @@ Glossary extension for [pmxbot](https://bitbucket.org/yougov/pmxbot/wiki/Home).
 
 [![Build Status](https://travis-ci.org/harveyr/pmxbot-glossary.svg?branch=master)](https://travis-ci.org/harveyr/pmxbot-glossary)
 
-**Note that this will override the default pmxbot !define command.**
-
-## Command Examples
+## Commands
 
 **Get a definition**
 
@@ -14,13 +12,13 @@ Glossary extension for [pmxbot](https://bitbucket.org/yougov/pmxbot/wiki/Home).
 
 **Add a definition**
 
-`!define carrot: An orange rod`
+`!set carrot: An orange rod`
 
 **Update a definition**
 
 Same as adding one:
 
-`!define carrot: An orange vegetable. For more, see http://en.wikipedia.org/wiki/Carrot`
+`!set carrot: An orange vegetable. For more, see http://en.wikipedia.org/wiki/Carrot`
 
 This creates a new definition without overwriting the old one.
 
@@ -28,12 +26,21 @@ This creates a new definition without overwriting the old one.
 
 `!whatis carrot: 1`
 
-This returns the first definition. `!whatis carrot 2` would return the second, and so on.
+This returns the first definition. `!whatis carrot: 2` would return the second,
+and so on.
 
 **Get a random definition**
 
 `!whatis`
- 
+
+**Redirect an entry to another**
+
+`redirect burger: hamburger`
+
+**Remove a redirect**
+
+`unredirect burger`
+
  
 ## Why?
 

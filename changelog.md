@@ -1,5 +1,16 @@
 # pmxbot-glossary changelog
 
+**0.4.0**
+*(TBD)*
+
+* Removed `!define` and replaced it with `!set`. !define overrides a pmxbot
+default, and the override stopped working for some unknown reason. Since there
+is not a clear way to "properly" override a default command, we'll use something
+new.
+
+
+* README fixes.
+
 **0.3.0**
 *(Oct 20, 2014)*
 

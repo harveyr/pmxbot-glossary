@@ -10,7 +10,7 @@ import pmxbot
 from pmxbot import storage
 from pmxbot.core import command
 
-DEFINE_COMMAND = 'define'
+DEFINE_COMMAND = 'set'
 QUERY_COMMAND = 'whatis'
 SEARCH_COMMAND = 'search'
 REDIRECT_COMMAND = 'redirect'
@@ -764,7 +764,7 @@ def nth_str(num):
     return nth_map.get(num, '{}th'.format(num))
 
 
-@command(DEFINE_COMMAND, doc=DOCS_STR)
+@command(DEFINE_COMMAND, doc=DOCS_STR, aliases=('gdefine', ))
 def define(client, event, channel, nick, rest):
     """
     Add a definition for a glossary entry.
@@ -845,7 +845,7 @@ def redirect(client, event, channel, nick, rest):
     except InvalidRedirectError as e:
         return str(e)
 
-    return u'"{}" will now redirect to "{}."'.format(redirect_from, redirect_to)
+    return u'"{}" will now redirect to "{}"'.format(redirect_from, redirect_to)
 
 
 @command(REMOVE_REDIRECT_COMMAND)
@@ -864,7 +864,7 @@ def remove_redirect(entry, num=None):
 
     Glossary.store.remove_redirect(entry)
 
-    return u'"{}" is no longer being redirected to "{}."'.format(
+    return u'"{}" is no longer being redirected to "{}"'.format(
         entry, existing.entry
     )
 
