@@ -13,11 +13,14 @@ from pmxbot.core import command
 DEFINE_COMMAND = 'define'
 QUERY_COMMAND = 'whatis'
 SEARCH_COMMAND = 'search'
+REDIRECT_COMMAND = 'redirect'
+REMOVE_REDIRECT_COMMAND = 'unredirect'
 ARCHIVES_LINK_COMMAND = 'tardis'
 
 HELP_DEFINE_STR = '!{} <entry>: <definition>'.format(DEFINE_COMMAND)
 HELP_QUERY_STR = '!{} <entry> [: num]'.format(QUERY_COMMAND)
 HELP_SEARCH_STR = '!{} <search terms>'.format(SEARCH_COMMAND)
+HELP_REDIRECT_STR = '!{} <redirect from>:<redirect to>'.format(REDIRECT_COMMAND)
 
 DOCS_STR = (
     'To define a glossary entry: `{}`. '
@@ -27,7 +30,9 @@ DOCS_STR = (
     'Get a random definition by omitting the entry argument.'
 ).format(HELP_DEFINE_STR, HELP_QUERY_STR, HELP_SEARCH_STR)
 
-OOPS_STR = "I didn't understand that. " + DOCS_STR
+OOPS_BASE = "I didn't understand that. "
+OOPS_STR = OOPS_BASE + DOCS_STR
+OOPS_REDIRECT = OOPS_BASE + HELP_REDIRECT_STR
 
 ADD_DEFINITION_RESULT_TEMPLATE = (
     u'Okay! "{entry}" is now "{definition}". '
@@ -38,9 +43,22 @@ QUERY_RESULT_TEMPLATE = (
     u'{entry} ({num}/{total}): {definition} [{author} - {age}]'
 )
 
+REDIRECT_RESULT_TEMPLATE = (
+    u'{entry} redirects to {redirect} ({num}/{total}): '
+    u'{definition} [{author} - {age}]'
+)
+
 UNDEFINED_TEMPLATE = u'"{}" is undefined.'
 
 INVALID_ENTRY_CHARS = [c for c in string.punctuation if c not in ['_', '-']]
+
+
+class InvalidEntryError(Exception):
+    pass
+
+
+class InvalidRedirectError(Exception):
+    pass
 
 
 class Glossary(storage.SelectableStorage):
@@ -116,6 +134,19 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
       CREATE INDEX IF NOT EXISTS ix_glossary_entry ON glossary(entry_lower)
     """
 
+    CREATE_REDIRECTS_SQL = """
+      CREATE TABLE IF NOT EXISTS glossary_redirects (
+       redirectid INTEGER PRIMARY KEY AUTOINCREMENT,
+       redirect_from VARCHAR UNIQUE NOT NULL,
+       redirect_to VARCHAR NOT NULL
+    )
+    """
+
+    CREATE_REDIRECT_INDEX_SQL = """
+      CREATE INDEX IF NOT EXISTS ix_glossary_redirect
+      ON glossary_redirects(redirect_from)
+    """
+
     ALL_ENTRIES_CACHE_KEY = 'all_entries'
 
     cache = {}
@@ -132,6 +163,8 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
     def init_tables(self):
         self.db.execute(self.CREATE_GLOSSARY_SQL)
         self.db.execute(self.CREATE_GLOSSARY_INDEX_SQL)
+        self.db.execute(self.CREATE_REDIRECTS_SQL)
+        self.db.execute(self.CREATE_REDIRECT_INDEX_SQL)
         self.db.commit()
 
     def dump_to_json(self):
@@ -231,6 +264,67 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         if self.ALL_ENTRIES_CACHE_KEY in self.cache:
             del self.cache[self.ALL_ENTRIES_CACHE_KEY]
 
+    def add_redirect(
+        self,
+        redirect_from,
+        redirect_to
+    ):
+        """
+        Add redirection from one entry to another.
+
+        ``redirect_from`` does not need to exist in the glossary table.
+        """
+        redirect_from = redirect_from.lower()
+        redirect_to = redirect_to.lower()
+
+        existing = self.get_redirect(redirect_to)
+
+        if existing:
+            raise InvalidRedirectError(
+                u'"{}" is itself being redirected to "{}."'.format(
+                    redirect_to, existing.entry
+                )
+            )
+
+        sql = """
+            INSERT OR REPLACE INTO glossary_redirects
+              (redirectid, redirect_from, redirect_to)
+            VALUES (
+              (
+                SELECT redirectid from glossary_redirects
+                WHERE redirect_from = ?
+              ),
+              ?,
+              ?
+            )
+        """
+
+        self.db.execute(sql, (redirect_from, redirect_from, redirect_to))
+        self.db.commit()
+
+    def remove_redirect(self, entry):
+        sql = """
+          DELETE FROM glossary_redirects
+          WHERE redirect_from = ?
+        """
+
+        self.db.execute(sql, (entry.lower(), ))
+        self.db.commit()
+
+    def get_redirect(self, entry):
+        sql = """
+            SELECT redirect_to
+            FROM glossary_redirects
+            WHERE redirect_from = ?
+        """
+
+        row = self.db.execute(sql, (entry.lower(), )).fetchone()
+
+        if row:
+            return self.get_entry_data(row[0])
+
+        return None
+
     def add_entry(
         self,
         entry,
@@ -239,6 +333,15 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         channel=None,
         timestamp=None
     ):
+        redirect_entry = self.get_redirect(entry)
+
+        if redirect_entry:
+            msg = (
+                u'"{}" redirects to "{}." Redirected entries cannot be defined.'
+            ).format(entry, redirect_entry.entry)
+
+            raise InvalidEntryError(msg)
+
         if timestamp:
             sql = """
               INSERT INTO glossary
@@ -516,31 +619,51 @@ def handle_nth_definition(entry, num=None):
     If ``num`` is passed, it will return the corresponding numbered, historical
     definition for the entry.
     """
+    redirect_data = Glossary.store.get_redirect(entry)
+    target_entry = redirect_data.entry if redirect_data else entry
+
     try:
-        query_result = Glossary.store.get_entry_data(entry, num)
+        query_result = Glossary.store.get_entry_data(target_entry, num)
     except IndexError:
-        entries = Glossary.store.get_all_records_for_entry(entry)
+        entries = Glossary.store.get_all_records_for_entry(target_entry)
 
         if not entries:
             return UNDEFINED_TEMPLATE.format(entry)
 
         count = len(entries)
 
+        valid_records_str = 'Valid record numbers are 1-{}.'.format(count)
+
+        if redirect_data:
+            return (
+                u'"{}" redirects to "{}," which has {} records. {}'.format(
+                    entry, target_entry, count, valid_records_str
+                )
+            )
+
         return (
-            u'"{}" has {} records. Valid record numbers are 1-{}.'.format(
-                entry, count, count
+            u'"{}" has {} records. {}'.format(
+                entry, count, valid_records_str
             )
         )
 
     if query_result:
-        return QUERY_RESULT_TEMPLATE.format(
+        kwargs = dict(
             entry=query_result.entry,
             num=query_result.index + 1,
             total=query_result.total_count,
             definition=query_result.definition,
             author=query_result.author,
-            age=datetime_to_age_str(query_result.datetime)
+            age=datetime_to_age_str(query_result.datetime),
         )
+
+        if redirect_data:
+            kwargs['entry'] = entry
+            kwargs['redirect'] = query_result.entry
+
+            return REDIRECT_RESULT_TEMPLATE.format(**kwargs)
+
+        return QUERY_RESULT_TEMPLATE.format(**kwargs)
 
     response = UNDEFINED_TEMPLATE.format(entry)
 
@@ -656,7 +779,10 @@ def define(client, event, channel, nick, rest):
     if existing and existing.definition == definition:
         return "That's already the current definition."
 
-    result = Glossary.store.add_entry(entry, definition, nick, channel)
+    try:
+        result = Glossary.store.add_entry(entry, definition, nick, channel)
+    except InvalidEntryError as e:
+        return str(e)
 
     return ADD_DEFINITION_RESULT_TEMPLATE.format(
         entry=result.entry,
@@ -675,6 +801,50 @@ def query(entry, num):
         return handle_random_query()
 
     return handle_nth_definition(entry, num)
+
+
+@command(REDIRECT_COMMAND)
+def redirect(client, event, channel, nick, rest):
+    """
+    Redirect one entry to another.
+    """
+    if ':' not in rest:
+        return OOPS_REDIRECT
+
+    parts = rest.split(':')
+
+    if len(parts) != 2:
+        return OOPS_REDIRECT
+
+    redirect_from, redirect_to = [p.strip() for p in parts]
+
+    try:
+        Glossary.store.add_redirect(redirect_from, redirect_to)
+    except InvalidRedirectError as e:
+        return str(e)
+
+    return u'"{}" will now redirect to "{}."'.format(redirect_from, redirect_to)
+
+
+@command(REMOVE_REDIRECT_COMMAND)
+@entry_number_command
+def remove_redirect(entry, num=None):
+    """
+    Remove a redirect.
+    """
+    if num:
+        return OOPS_REDIRECT
+
+    existing = Glossary.store.get_redirect(entry)
+
+    if not existing:
+        return u'"{}" is not being redirected anywhere.'
+
+    Glossary.store.remove_redirect(entry)
+
+    return u'"{}" is no longer being redirected to "{}."'.format(
+        entry, existing.entry
+    )
 
 
 @command(SEARCH_COMMAND, doc=DOCS_STR)

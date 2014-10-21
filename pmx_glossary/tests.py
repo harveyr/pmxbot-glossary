@@ -14,15 +14,17 @@ class GlossaryTestCase(unittest.TestCase):
         'building': 'where salmon hold meetings',
         'castle': 'where salmon have tea',
         'fish Oil': 'what salmon sell',
-        'Salmon': 'a type of things',
+        'Salmon-person': 'a type of things',
         'snargh': 'also a thing',
         'snowman': u'\u2603',
+        '__underscores__': 'woah',
     }
 
     TEST_NICK = 'tester_person'
 
     def setUp(self):
         self.wipe_and_init_glossary()
+        self.store = glossary.Glossary.store
 
     def wipe_and_init_glossary(self):
         if os.path.exists(self.DB_FILE):
@@ -42,6 +44,17 @@ class GlossaryTestCase(unittest.TestCase):
             self._call_define(
                 u'{}: {}'.format(entry, definition), nick=self.TEST_NICK
             )
+
+    def _call_command(self, func, rest, nick=None):
+        nick = nick or self.TEST_NICK
+
+        return func(
+            client='client',
+            event='event',
+            channel='channel',
+            nick=nick,
+            rest=rest
+        )
 
     def _call_search(self, rest):
         return glossary.search(
@@ -73,6 +86,20 @@ class GlossaryTestCase(unittest.TestCase):
             nick=nick,
             rest=rest
         )
+
+    def _call_redirect(self, rest, nick=None):
+        nick = nick or self.TEST_NICK
+
+        return glossary.redirect(
+            client='client',
+            event='event',
+            channel='channel',
+            nick=nick,
+            rest=rest
+        )
+
+    def _call_unredirect(self, rest, nick=None):
+        return self._call_command(glossary.remove_redirect, rest, nick)
 
     def test_dump_and_load(self):
         self._load_test_definitions()
@@ -396,6 +423,81 @@ class GlossaryTestCase(unittest.TestCase):
         result = self._call_search('fish')
 
         self.assertIn(': FisH and fish head.', result)
+
+    def test_simple_redirect(self):
+        self._call_define('Bad Dude: one bad summagun')
+        self._call_define('cool Dude: one cool summagun')
+
+        self._call_redirect('bad Dude: cool DUde')
+
+        redirect = self.store.get_redirect('bad dude')
+
+        self.assertEqual(redirect.entry, 'cool Dude')
+
+        result = self._call_whatis('bad dude')
+        expected = glossary.REDIRECT_RESULT_TEMPLATE.format(
+            entry='bad dude',
+            redirect='cool Dude',
+            num=1,
+            total=1,
+            definition='one cool summagun',
+            author=self.TEST_NICK,
+            age='just now'
+        )
+
+        self.assertEqual(result, expected)
+
+    def test_redefine_redirect(self):
+        self._load_test_definitions({
+            'thingy': 'flamma jam',
+            'tom tom tom': 'superdrum',
+        })
+
+        for _ in range(5):
+            self.store.add_redirect('thingy', 'tom tom tom')
+            self.assertEqual(
+                self.store.get_redirect('thingy').entry, 'tom tom tom'
+            )
+
+    def test_circular_redirect(self):
+        self._load_test_definitions({
+            'thingy': 'flamma jam',
+            'tom tom tom': 'superdrum',
+        })
+
+        self._call_redirect('thingy: tom tom tom')
+        r_record = self.store.get_redirect('thingy')
+        self.assertEqual(r_record.entry, 'tom tom tom')
+
+        invalid_attempt = self._call_redirect('tom tom tom: thingy')
+        self.assertEqual(
+            invalid_attempt,
+            '"thingy" is itself being redirected to "tom tom tom."'
+        )
+
+    def test_remove_redirect(self):
+        self._load_test_definitions({
+            'thingy': 'flamma jam',
+            'tom tom tom': 'superdrum',
+        })
+
+        self._call_redirect('thingy: tom tom tom')
+        self.assertEqual(self.store.get_redirect('thingy').entry, 'tom tom tom')
+
+        self._call_unredirect('thingy')
+        self.assertIsNone(self.store.get_redirect('thingy'))
+
+        self.assertEqual(
+            self._call_whatis('thingy'),
+            glossary.QUERY_RESULT_TEMPLATE.format(
+                entry='thingy',
+                num=1,
+                total=1,
+                definition='flamma jam',
+                author=self.TEST_NICK,
+                age='just now'
+            )
+        )
 
 
 class ReadableJoinTestCase(unittest.TestCase):
