@@ -16,7 +16,14 @@ def jsondump():
     click.secho('Dumping to json...')
     data, filepath = Glossary.store.dump_to_json()
 
-    print('Dumped {} glossary entries to {}'.format(len(data), filepath))
+    entry_count = len(data['entries'])
+    redirect_count = len(data['redirects'])
+
+    print(
+        'Dumped {} glossary entries and {} redirects to {}'.format(
+            entry_count, redirect_count, filepath
+        )
+    )
 
 
 @cli.command()
@@ -25,15 +32,20 @@ def jsonload(path):
     """
     Load entry data from a json file.
     """
-    all_entries, inserted = Glossary.store.load_from_json(path)
-    all_len, inserted_len = len(all_entries), len(inserted)
+    all_data, inserted = Glossary.store.load_from_json(path)
+    all_entries_count = len(all_data['entries'])
+    inserted_entries_count = len(inserted)
 
-    print('Inserted {}/{} entries from file.'.format(all_len, inserted_len))
+    print(
+        'Inserted {}/{} entries from file.'.format(
+            inserted_entries_count, all_entries_count
+        )
+    )
 
-    if all_len != inserted_len:
+    if all_entries_count != inserted_entries_count:
         print(
             'This implies that {} entries were already in the database.'.format(
-                all_len - inserted_len
+                all_entries_count - inserted_entries_count
             )
         )
 

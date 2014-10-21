@@ -1,6 +1,6 @@
 import os
 import datetime
-import string
+import random
 import unittest
 
 from pmx_glossary import glossary
@@ -104,19 +104,31 @@ class GlossaryTestCase(unittest.TestCase):
     def test_dump_and_load(self):
         self._load_test_definitions()
 
+        redirects = 'red1', 'red2', 'red3', 'red4'
+        redirect_map = {}
+
+        for redirect_from in redirects:
+            redirect_to = random.choice(self.TEST_DEFINITIONS.keys())
+            redirect_map[redirect_from] = redirect_to
+
+            self._call_redirect('{}: {}'.format(redirect_from, redirect_to))
+
+        self.assertEqual(len(redirects), len(redirect_map.keys()))
+
+        # Dump the data
         dump_data, filepath = glossary.Glossary.store.dump_to_json()
 
-        dumped_entries = {r['entry'] for r in dump_data}
+        dumped_entries = {r['entry'] for r in dump_data['entries']}
         expected_entries = set(self.TEST_DEFINITIONS.keys())
 
         self.assertEqual(dumped_entries, expected_entries)
 
         # Reloading what's already in the db should not affect anything.
-        loaded_entries, inserted = glossary.Glossary.store.load_from_json(
+        loaded_json, inserted = glossary.Glossary.store.load_from_json(
             filepath
         )
         self.assertEqual(len(inserted), 0)
-        self.assertEqual(len(loaded_entries), len(expected_entries))
+        self.assertEqual(len(loaded_json['entries']), len(expected_entries))
 
         # Loading into a clean db should insert all the things.
         self.wipe_and_init_glossary()
@@ -127,12 +139,18 @@ class GlossaryTestCase(unittest.TestCase):
         )
         self.assertEqual(len(inserted), len(expected_entries))
 
+        # Did we get all our entries back?
         for entry in expected_entries:
             records = glossary.Glossary.store.get_all_records_for_entry(entry)
 
             self.assertEqual(1, len(records))
 
             self.assertEqual(records[0].entry, entry)
+
+        # Did we get all our redirects back?
+        for redirect_from, redirect_to in redirect_map.items():
+            record = self.store.get_redirect(redirect_from)
+            self.assertEqual(record.entry, redirect_to)
 
         os.remove(filepath)
 

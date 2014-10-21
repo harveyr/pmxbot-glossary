@@ -22,17 +22,17 @@ HELP_QUERY_STR = '!{} <entry> [: num]'.format(QUERY_COMMAND)
 HELP_SEARCH_STR = '!{} <search terms>'.format(SEARCH_COMMAND)
 HELP_REDIRECT_STR = '!{} <redirect from>:<redirect to>'.format(REDIRECT_COMMAND)
 
+# TODO: Clean all of this up.
 DOCS_STR = (
     'To define a glossary entry: `{}`. '
     'To get a definition: `{}`. '
     'To search for entries: `{}`. '
-    'Pass in an integer >= 1 to get a definition from the history. '
-    'Get a random definition by omitting the entry argument.'
 ).format(HELP_DEFINE_STR, HELP_QUERY_STR, HELP_SEARCH_STR)
 
 OOPS_BASE = "I didn't understand that. "
-OOPS_STR = OOPS_BASE + DOCS_STR
-OOPS_REDIRECT = OOPS_BASE + HELP_REDIRECT_STR
+OOPS_GENERIC = OOPS_BASE + DOCS_STR
+OOPS_REDIRECT = OOPS_BASE + 'Try ' + HELP_REDIRECT_STR
+OOPS_SEARCH = OOPS_BASE + 'Try ' + HELP_SEARCH_STR
 
 ADD_DEFINITION_RESULT_TEMPLATE = (
     u'Okay! "{entry}" is now "{definition}". '
@@ -171,7 +171,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         """
         Dumps all entry data to a temporary file.
         """
-        dump_data = []
+        entries, redirects = [], []
 
         outfile = tempfile.NamedTemporaryFile(
             mode='w',
@@ -180,7 +180,7 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
             delete=False
         )
 
-        sql = """
+        entry_sql = """
           SELECT entry,
             entry_lower,
             definition,
@@ -191,8 +191,8 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
           ORDER BY entry_lower
         """
 
-        for row in self.db.execute(sql):
-            dump_data.append({
+        for row in self.db.execute(entry_sql):
+            entries.append({
                 'entry': row[0],
                 'entry_lower': row[1],
                 'definition': row[2],
@@ -200,6 +200,22 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
                 'channel': row[4],
                 'timestamp': row[5]
             })
+
+        redirect_sql = """
+          SELECT redirect_from, redirect_to
+          FROM glossary_redirects
+        """
+
+        for row in self.db.execute(redirect_sql):
+            redirects.append({
+                'redirect_from': row[0],
+                'redirect_to': row[1],
+            })
+
+        dump_data = {
+            'entries': entries,
+            'redirects': redirects,
+        }
 
         json.dump(dump_data, outfile, indent=2)
 
@@ -220,9 +236,9 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
         inserted = []
 
         with open(filepath, 'r') as f:
-            all_entries = json.load(f)
+            data = json.load(f)
 
-            for entry_data in all_entries:
+            for entry_data in data.get('entries', []):
                 entry = entry_data['entry']
                 entry_lower = entry_data['entry_lower']
                 definition = entry_data['definition']
@@ -258,7 +274,13 @@ class SQLiteGlossary(Glossary, storage.SQLiteStorage):
 
                     inserted.append(entry_data)
 
-            return all_entries, inserted
+            for redirect_data in data.get('redirects', []):
+                self.add_redirect(
+                    redirect_data['redirect_from'],
+                    redirect_data['redirect_to']
+                )
+
+            return data, inserted
 
     def bust_all_entries_cache(self):
         if self.ALL_ENTRIES_CACHE_KEY in self.cache:
@@ -721,7 +743,7 @@ def entry_number_command(func):
             try:
                 num = int(num)
             except (ValueError, TypeError):
-                return OOPS_STR
+                return OOPS_GENERIC
         else:
             entry = rest
 
@@ -753,7 +775,7 @@ def define(client, event, channel, nick, rest):
         return DOCS_STR
 
     if not ':' in rest:
-        return OOPS_STR
+        return OOPS_GENERIC
 
     if '::' in rest:
         return "I can't handle '::' right now. Please try again without it."
@@ -761,7 +783,7 @@ def define(client, event, channel, nick, rest):
     parts = rest.split(':', 1)
 
     if len(parts) != 2:
-        return OOPS_STR
+        return OOPS_GENERIC
 
     entry = parts[0].strip()
 
@@ -853,9 +875,8 @@ def search(entry, num=None):
     """
     Search the entries and defintions.
     """
-    # No `num` handled here.
     if not entry or num:
-        return OOPS_STR
+        return OOPS_SEARCH
 
     return handle_search(entry)
 
