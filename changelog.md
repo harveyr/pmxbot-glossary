@@ -1,5 +1,12 @@
 # pmxbot-glossary changelog
 
+**0.4.1**
+*(Oct 22, 2014)*
+
+* `!define` is back! Many thanks to Jason Coombs for providing the proper ways
+to play with command-override priorities.
+* `!set` is still there as well, as an alias.
+
 **0.4.0**
 *(Oct 21, 2014)*
 

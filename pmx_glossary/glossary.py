@@ -8,9 +8,9 @@ from collections import namedtuple
 
 import pmxbot
 from pmxbot import storage
-from pmxbot.core import command
+from pmxbot.core import command, AliasHandler, CommandHandler
 
-DEFINE_COMMAND = 'set'
+DEFINE_COMMAND = 'define'
 QUERY_COMMAND = 'whatis'
 SEARCH_COMMAND = 'search'
 WHOWROTE_COMMAND = 'whowrote'
@@ -81,6 +81,28 @@ class InvalidEntryNumberError(Exception):
             )
 
         super(InvalidEntryNumberError, self).__init__(message)
+
+
+def override_command(name, aliases=None, doc=None, priority=2):
+    """
+    Command decorator that accepts a priority argument.
+
+    This mimics the standard ``command`` decorator, except it accepts
+    a priority int that is passed through to the CommandHandler
+    instance.
+
+    As documented in pmxbot.core.Handler, higher value == higher priority.
+    """
+    handler = CommandHandler(priority=priority, name=name.lower(), doc=doc)
+
+    if aliases:
+        aliases = [
+            AliasHandler(name=alias, parent=handler) for alias in aliases
+        ]
+
+        handler.aliases = aliases
+
+    return handler.decorate
 
 
 class Glossary(storage.SelectableStorage):
@@ -873,7 +895,9 @@ def nth_str(num):
     return nth_map.get(num, '{}th'.format(num))
 
 
-@command(DEFINE_COMMAND, doc=DOCS_STR, aliases=('gdefine', ))
+@override_command(
+    DEFINE_COMMAND, doc=HELP_DEFINE_STR, aliases=('set', 'gdefine')
+)
 def define(client, event, channel, nick, rest):
     """
     Add a definition for a glossary entry.
